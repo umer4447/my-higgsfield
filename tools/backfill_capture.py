@@ -19,6 +19,7 @@ Usage:
 """
 
 import json
+import re
 import sys
 import pathlib
 import importlib.util
@@ -35,6 +36,27 @@ SKIP_PREFIXES = (
 )
 
 
+# The harness appends its own blocks to a user turn: session reminders, and
+# "Note: <path> changed on disk" notices that quote file diffs. Those are not
+# what the person typed, and when the changed file is the log itself the log
+# starts quoting itself. Strip them so a PROMPT entry is the person's words,
+# verbatim and in full -- which is the point.
+NOISE_BLOCKS = [
+    re.compile(r"<system-reminder>.*?</system-reminder>", re.S),
+    re.compile(
+        r"\nNote: [^\n]*? changed on disk since you last read it\..*$",
+        re.S,
+    ),
+    re.compile(r"\nThe user sent a new message while you were working:.*$", re.S),
+]
+
+
+def strip_harness_blocks(text):
+    for rx in NOISE_BLOCKS:
+        text = rx.sub("", text)
+    return text.strip()
+
+
 def is_harness_noise(text):
     t = text.strip()
     if not t:
@@ -42,15 +64,57 @@ def is_harness_noise(text):
     return t.startswith(SKIP_PREFIXES)
 
 
+def ask_tool_ids(records):
+    """tool_use ids that belong to AskUserQuestion, so its results can be told
+    apart from ordinary tool output that merely quotes the log."""
+    ids = set()
+    for rec in records:
+        if rec.get("type") != "assistant":
+            continue
+        content = (rec.get("message") or {}).get("content")
+        if not isinstance(content, list):
+            continue
+        for b in content:
+            if (
+                isinstance(b, dict)
+                and b.get("type") == "tool_use"
+                and b.get("name") == "AskUserQuestion"
+                and b.get("id")
+            ):
+                ids.add(b["id"])
+    return ids
+
+
+def blob_text(blob):
+    if isinstance(blob, list):
+        return " ".join(
+            x.get("text", "") for x in blob if isinstance(x, dict)
+        )
+    return blob if isinstance(blob, str) else ""
+
+
+MID_TURN = re.compile(
+    r"The user sent a new message while you were working:\s*\n(.*?)"
+    r"(?:\n\nThis is how Claude Code surfaces|\Z)",
+    re.S,
+)
+ANSWERED = re.compile(
+    r"(The user answered:.*?)"
+    r"(?:\n\s*(?:Read the answers carefully|You can now continue)|\Z)",
+    re.S,
+)
+
+
 def human_turns(records):
     """(index, timestamp, prompt_text) for every turn a person actually drove."""
+    asks = ask_tool_ids(records)
     out = []
     for i, rec in enumerate(records):
         if rec.get("type") != "user":
             continue
-        msg = rec.get("message") or {}
-        content = msg.get("content")
+        content = (rec.get("message") or {}).get("content")
         text = None
+
         if isinstance(content, str):
             text = content
         elif isinstance(content, list):
@@ -62,21 +126,27 @@ def human_turns(records):
             if parts:
                 text = "\n".join(parts)
             else:
-                # AskUserQuestion answers come back as a tool_result, but they are
-                # the person's own words steering the build, so they count.
                 for b in content:
                     if not isinstance(b, dict) or b.get("type") != "tool_result":
                         continue
-                    blob = b.get("content")
-                    if isinstance(blob, list):
-                        blob = " ".join(
-                            x.get("text", "")
-                            for x in blob
-                            if isinstance(x, dict)
-                        )
-                    if isinstance(blob, str) and "The user answered" in blob:
-                        text = "[answer to AskUserQuestion] " + blob.strip()
-        if text is None or is_harness_noise(text):
+                    blob = blob_text(b.get("content"))
+                    # a message typed mid-turn is relayed through tool output
+                    mid = MID_TURN.search(blob)
+                    if mid:
+                        text = mid.group(1).strip()
+                        break
+                    # AskUserQuestion answers are the person's own words, but only
+                    # when the result actually belongs to an AskUserQuestion call
+                    if b.get("tool_use_id") in asks:
+                        ans = ANSWERED.search(blob)
+                        if ans:
+                            text = "[answer to AskUserQuestion] " + ans.group(1).strip()
+                            break
+
+        if text is None:
+            continue
+        text = strip_harness_blocks(text)
+        if is_harness_noise(text):
             continue
         out.append((i, rec.get("timestamp"), text))
     return out
