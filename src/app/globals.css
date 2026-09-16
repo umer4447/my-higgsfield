@@ -103,6 +103,7 @@ body::after {
   color: var(--ink);
 }
 
+@layer components {
 /* ---------- type ---------- */
 
 .display {
@@ -207,6 +208,8 @@ body::after {
   background: var(--bg-raised);
   border: 1px solid var(--line-soft);
   border-radius: var(--r-lg);
+}
+
 }
 
 /* ---------- motion ---------- */

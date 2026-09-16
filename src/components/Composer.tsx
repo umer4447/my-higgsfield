@@ -126,7 +126,7 @@ export default function Composer() {
   return (
     <div className="mx-auto grid max-w-[1500px] gap-6 px-4 pb-32 pt-6 sm:px-6 lg:grid-cols-[404px_1fr]">
       {/* ------------------------------ controls ------------------------------ */}
-      <div className="lg:sticky lg:top-[77px] lg:self-start">
+      <div className="lg:sticky lg:top-[73px] lg:max-h-[calc(100vh-88px)] lg:self-start lg:overflow-y-auto lg:pr-1">
         <div className="card overflow-hidden">
           {/* mode */}
           <div className="grid grid-cols-2 border-b border-line-soft">
@@ -292,7 +292,7 @@ export default function Composer() {
                 </button>
               ))}
             </div>
-            <div className="grid max-h-[230px] grid-cols-2 gap-1.5 overflow-y-auto pr-1">
+            <div className="grid max-h-[176px] grid-cols-2 gap-1.5 overflow-y-auto pr-1">
               {visiblePresets.map((p) => (
                 <button
                   key={p.slug}
@@ -319,7 +319,7 @@ export default function Composer() {
           </div>
 
           {/* submit */}
-          <div className="border-t border-line-soft bg-sunken p-3">
+          <div className="sticky bottom-0 z-10 border-t border-line bg-sunken/95 p-3 backdrop-blur-md">
             <button
               onClick={go}
               disabled={!prompt.trim() || !affordable}
