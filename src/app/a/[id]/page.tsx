@@ -5,7 +5,7 @@ import { use, useMemo } from "react";
 import { notFound, useRouter } from "next/navigation";
 import { useStore, modelName } from "@/lib/store";
 import { SEED_ASSETS } from "@/lib/seed";
-import { presetBySlug, modelById } from "@/lib/catalog";
+import { presetBySlug, modelById, ratioById } from "@/lib/catalog";
 import Frame from "@/components/Frame";
 import ExportBar from "@/components/ExportBar";
 
@@ -40,7 +40,10 @@ export default function AssetPage({
       </button>
 
       <div className="grid gap-8 lg:grid-cols-[1.25fr_1fr]">
-        <div>
+        <div
+          className="mx-auto w-full"
+          style={{ maxWidth: `calc(74vh * ${ratioById(asset.ratioId).w} / ${ratioById(asset.ratioId).h})` }}
+        >
           <Frame asset={asset} priority rounded="rounded-[14px]" />
           <ExportBar asset={asset} />
         </div>
