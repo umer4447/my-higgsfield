@@ -92,11 +92,11 @@ export type Ratio = {
 };
 
 export const RATIOS: Ratio[] = [
-  { id: "9:16", label: "9:16", w: 768, h: 1344, note: "Vertical / social" },
-  { id: "1:1", label: "1:1", w: 1024, h: 1024, note: "Square" },
-  { id: "4:5", label: "4:5", w: 896, h: 1120, note: "Portrait feed" },
-  { id: "16:9", label: "16:9", w: 1344, h: 768, note: "Widescreen" },
-  { id: "21:9", label: "21:9", w: 1536, h: 656, note: "Anamorphic" },
+  { id: "9:16", label: "9:16", w: 576, h: 1024, note: "Vertical / social" },
+  { id: "1:1", label: "1:1", w: 832, h: 832, note: "Square" },
+  { id: "4:5", label: "4:5", w: 704, h: 880, note: "Portrait feed" },
+  { id: "16:9", label: "16:9", w: 1024, h: 576, note: "Widescreen" },
+  { id: "21:9", label: "21:9", w: 1120, h: 480, note: "Anamorphic" },
 ];
 
 export const ratioById = (id: string) => RATIOS.find((r) => r.id === id) ?? RATIOS[1];

@@ -1,0 +1,11 @@
+import { chromium } from 'playwright';
+const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' });
+const p = await (await b.newContext()).newPage();
+const urls = [];
+p.on('request', r => { if (r.url().includes('pollinations')) urls.push(r.url()); });
+await p.goto('http://localhost:3100/', { waitUntil:'domcontentloaded' });
+await p.waitForTimeout(4000);
+console.log(urls.length, 'requests');
+console.log(urls.slice(0,2).join('\n\n'));
+console.log('max len', Math.max(...urls.map(u=>u.length)));
+await b.close();

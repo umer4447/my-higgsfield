@@ -35,7 +35,7 @@ const SPECS: Spec[] = [
   },
   {
     prompt: "a single ripe persimmon on a cracked ceramic plate",
-    model: "plate",
+    model: "halide-flash",
     preset: "table-top",
     ratio: "1:1",
     seed: 8802,
@@ -62,7 +62,7 @@ const SPECS: Spec[] = [
   },
   {
     prompt: "the stairwell of a 1970s brutalist library, empty",
-    model: "plate",
+    model: "halide-flash",
     preset: "brutal-concrete",
     ratio: "4:5",
     seed: 1971,
@@ -71,7 +71,7 @@ const SPECS: Spec[] = [
   },
   {
     prompt: "a fisherman mending nets on a harbour wall at dawn",
-    model: "reel-9",
+    model: "reel-mini",
     preset: "cold-open",
     ratio: "21:9",
     seed: 621,
@@ -89,7 +89,7 @@ const SPECS: Spec[] = [
   },
   {
     prompt: "teenagers on a rooftop watching a thunderstorm roll in",
-    model: "halide-2",
+    model: "halide-flash",
     preset: "sunfade",
     ratio: "16:9",
     seed: 1993,
@@ -107,7 +107,7 @@ const SPECS: Spec[] = [
   },
   {
     prompt: "a chef plating in a stainless kitchen under one hanging lamp",
-    model: "plate",
+    model: "halide-flash",
     preset: "hard-flash",
     ratio: "4:5",
     seed: 5150,
@@ -161,7 +161,7 @@ const SPECS: Spec[] = [
   },
   {
     prompt: "a container port at midday from a high window",
-    model: "halide-2",
+    model: "halide-flash",
     preset: "miniature-world",
     ratio: "16:9",
     seed: 313,
@@ -188,7 +188,7 @@ const SPECS: Spec[] = [
   },
   {
     prompt: "a greenhouse full of tomato vines in low winter sun",
-    model: "halide-2",
+    model: "halide-flash",
     preset: "portra-soft",
     ratio: "1:1",
     seed: 2211,
@@ -224,7 +224,7 @@ const SPECS: Spec[] = [
   },
   {
     prompt: "a record shop owner behind a counter of vinyl",
-    model: "halide-2",
+    model: "halide-flash",
     preset: "kodachrome-64",
     ratio: "4:5",
     seed: 3312,
