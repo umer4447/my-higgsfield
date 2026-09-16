@@ -7,6 +7,7 @@ import { StoreProvider } from "@/lib/store";
 import { JobRunner } from "@/lib/jobs";
 import Nav from "@/components/Nav";
 import JobTray from "@/components/JobTray";
+import Footer from "@/components/Footer";
 
 /* self-hosted: no runtime call to a font CDN, nothing to block, no layout shift */
 const display = localFont({
@@ -34,6 +35,7 @@ export default function RootLayout({
           <JobRunner />
           <Nav />
           <main className="pt-[57px]">{children}</main>
+          <Footer />
           <JobTray />
         </StoreProvider>
       </body>
