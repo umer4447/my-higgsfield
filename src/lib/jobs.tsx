@@ -16,6 +16,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { useStore, Asset, Job, newId } from "./store";
 import { Model, Preset, Ratio } from "./catalog";
 import { composePrompt, frameUrl, priceJob, randomSeed } from "./gen";
+import { loadFrame, PRIORITY } from "./loader";
 
 export type Submission = {
   prompt: string;
@@ -115,28 +116,14 @@ export function JobRunner() {
       const assets = state.assets.filter((a) => job.assetIds.includes(a.id));
       let failed = 0;
 
+      // through the shared queue, at job priority: what the user just paid for
+      // outranks whatever tiles the wall is idly filling in
       Promise.all(
-        assets.map(
-          (a) =>
-            new Promise<void>((resolve) => {
-              const img = new Image();
-              const done = () => resolve();
-              img.onload = done;
-              img.onerror = () => {
-                failed += 1;
-                dispatch({ t: "asset:remove", id: a.id });
-                done();
-              };
-              img.src = a.url;
-              // a frame that has not landed in two minutes is not landing
-              setTimeout(() => {
-                if (!img.complete) {
-                  failed += 1;
-                  dispatch({ t: "asset:remove", id: a.id });
-                  resolve();
-                }
-              }, 120_000);
-            }),
+        assets.map((a) =>
+          loadFrame(a.url, { priority: PRIORITY.job }).catch(() => {
+            failed += 1;
+            dispatch({ t: "asset:remove", id: a.id });
+          }),
         ),
       ).then(() => {
         const model = assets[0];
