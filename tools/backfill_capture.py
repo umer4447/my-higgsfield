@@ -1,0 +1,182 @@
+#!/usr/bin/env python3
+"""
+Backfill the capture log for a session that was already running when the hooks
+were installed.
+
+Claude Code loads its settings at process start, so the hooks registered
+mid-session in `~/.claude/settings.json` do not fire for the session that
+registered them -- they fire from the next session onwards (proven by the two
+canaries in CAPTURE-TEST.md). This script closes that one gap.
+
+It is not a substitute for the hook and it does not invent anything. It reads the
+exact same session transcript the `Stop` hook reads, runs the exact same
+extractor, and writes the exact same journal and markdown. The only difference is
+that it is pulled rather than pushed, and it uses the transcript's own record
+timestamps instead of hook-fire time -- which is slightly more accurate.
+
+Usage:
+    python3 tools/backfill_capture.py <session-id> [transcript.jsonl]
+"""
+
+import json
+import sys
+import pathlib
+import importlib.util
+
+HOOK = pathlib.Path("/root/.claude/hooks/agent_capture.py")
+spec = importlib.util.spec_from_file_location("agent_capture", HOOK)
+ac = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(ac)
+
+SKIP_PREFIXES = (
+    "<system-reminder>",
+    "Continue from where you left off",
+    "[Request interrupted",
+)
+
+
+def is_harness_noise(text):
+    t = text.strip()
+    if not t:
+        return True
+    return t.startswith(SKIP_PREFIXES)
+
+
+def human_turns(records):
+    """(index, timestamp, prompt_text) for every turn a person actually drove."""
+    out = []
+    for i, rec in enumerate(records):
+        if rec.get("type") != "user":
+            continue
+        msg = rec.get("message") or {}
+        content = msg.get("content")
+        text = None
+        if isinstance(content, str):
+            text = content
+        elif isinstance(content, list):
+            parts = [
+                b.get("text", "")
+                for b in content
+                if isinstance(b, dict) and b.get("type") == "text"
+            ]
+            if parts:
+                text = "\n".join(parts)
+            else:
+                # AskUserQuestion answers come back as a tool_result, but they are
+                # the person's own words steering the build, so they count.
+                for b in content:
+                    if not isinstance(b, dict) or b.get("type") != "tool_result":
+                        continue
+                    blob = b.get("content")
+                    if isinstance(blob, list):
+                        blob = " ".join(
+                            x.get("text", "")
+                            for x in blob
+                            if isinstance(x, dict)
+                        )
+                    if isinstance(blob, str) and "The user answered" in blob:
+                        text = "[answer to AskUserQuestion] " + blob.strip()
+        if text is None or is_harness_noise(text):
+            continue
+        out.append((i, rec.get("timestamp"), text))
+    return out
+
+
+def assistant_text_between(records, start, end):
+    chunks = []
+    for rec in records[start + 1 : end]:
+        if rec.get("type") != "assistant":
+            continue
+        content = (rec.get("message") or {}).get("content")
+        if isinstance(content, str):
+            if content.strip():
+                chunks.append(content)
+        elif isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    if block.get("text", "").strip():
+                        chunks.append(block["text"])
+    return "\n\n".join(chunks).strip()
+
+
+def assistant_model_between(records, start, end, fallback):
+    model = fallback
+    for rec in records[start + 1 : end]:
+        if rec.get("type") == "assistant":
+            m = (rec.get("message") or {}).get("model")
+            if m:
+                model = m
+    return model
+
+
+def last_ts_between(records, start, end, fallback):
+    ts = fallback
+    for rec in records[start + 1 : end]:
+        if rec.get("type") == "assistant" and rec.get("timestamp"):
+            ts = rec["timestamp"]
+    return ts
+
+
+def main():
+    if len(sys.argv) < 2:
+        print(__doc__)
+        sys.exit(1)
+    session_id = sys.argv[1]
+    if len(sys.argv) > 2:
+        transcript = sys.argv[2]
+    else:
+        transcript = f"/root/.claude/projects/-home-claude/{session_id}.jsonl"
+
+    conf = ac.cfg()
+    records = []
+    with open(transcript, "r", encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                records.append(json.loads(line))
+            except Exception:
+                continue
+
+    turns = human_turns(records)
+    entries = []
+    pnum = rnum = 0
+    for k, (idx, ts, prompt) in enumerate(turns):
+        end = turns[k + 1][0] if k + 1 < len(turns) else len(records)
+        model = assistant_model_between(records, idx, end, conf["fallback_model"])
+        pnum += 1
+        entries.append(
+            {
+                "type": "PROMPT",
+                "num": pnum,
+                "timestamp": ts or ac.now_iso(),
+                "model": model,
+                "body": prompt,
+            }
+        )
+        body = assistant_text_between(records, idx, end)
+        if body:
+            rnum += 1
+            entries.append(
+                {
+                    "type": "RESPONSE",
+                    "num": rnum,
+                    "timestamp": last_ts_between(records, idx, end, ts or ac.now_iso()),
+                    "model": model,
+                    "body": body,
+                }
+            )
+
+    ac.STATE_DIR.mkdir(parents=True, exist_ok=True)
+    with open(ac.journal_path(session_id), "w", encoding="utf-8") as fh:
+        for e in entries:
+            fh.write(json.dumps(e, ensure_ascii=False) + "\n")
+    ac.write_log(session_id, conf)
+
+    meta = ac.load_meta(session_id, conf)
+    print(f"{len(entries)} entries -> {conf['log_dir']}/{meta['filename']}")
+
+
+if __name__ == "__main__":
+    main()

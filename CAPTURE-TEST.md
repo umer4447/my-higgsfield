@@ -165,7 +165,20 @@ the log is not here to flatter anybody.
    response entry shown above. Interactive sessions, which is where all of the build
    work happens, capture both halves.
 
-6. **Log destination.** The hook runs in the cloud container and cannot write to the
+6. **Expecting the hooks to fire in the session that installed them.** They did not.
+   Claude Code reads its settings at process start, so the session already in flight
+   kept running with the old config; both canaries landed because one was a fresh
+   `-p` process and the other re-read settings on launch. Rather than pretend
+   otherwise, `tools/backfill_capture.py` closes that one gap: it reads the *same*
+   session transcript the `Stop` hook reads, imports the *same* extractor out of
+   `agent_capture.py`, and writes the same journal and markdown — pulled instead of
+   pushed, with the transcript's own record timestamps. It exists for exactly one
+   session (the one that installed the hooks); every session after this is captured
+   by the hook with nothing run by hand. It is also how AskUserQuestion answers get
+   into the log — those arrive as tool results rather than user messages, but they
+   are the operator's own words steering the build, so they are captured and labelled.
+
+7. **Log destination.** The hook runs in the cloud container and cannot write to the
    Mac's filesystem, so pointing `log_dir` straight at the operator's folder was not
    possible. The working repo therefore lives in the container — where the hook
    writes into `.agent-logs/` directly with no copy step — and the whole repo,
