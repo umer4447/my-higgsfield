@@ -127,9 +127,10 @@ export default function Composer() {
     <div className="mx-auto grid max-w-[1500px] gap-6 px-4 pb-32 pt-6 sm:px-6 lg:grid-cols-[404px_1fr]">
       {/* ------------------------------ controls ------------------------------ */}
       <div className="lg:sticky lg:top-[73px] lg:max-h-[calc(100vh-88px)] lg:self-start lg:overflow-y-auto lg:pr-1">
-        <div className="card overflow-hidden">
+        {/* no overflow-hidden here: it would kill position:sticky on the submit bar */}
+        <div className="card">
           {/* mode */}
-          <div className="grid grid-cols-2 border-b border-line-soft">
+          <div className="grid grid-cols-2 overflow-hidden rounded-t-[14px] border-b border-line-soft">
             {(["image", "motion"] as Mode[]).map((m) => (
               <button
                 key={m}
@@ -319,7 +320,7 @@ export default function Composer() {
           </div>
 
           {/* submit */}
-          <div className="sticky bottom-0 z-10 border-t border-line bg-sunken/95 p-3 backdrop-blur-md">
+          <div className="sticky bottom-0 z-20 rounded-b-[14px] border-t border-line bg-sunken/95 p-3 backdrop-blur-md">
             <button
               onClick={go}
               disabled={!prompt.trim() || !affordable}
