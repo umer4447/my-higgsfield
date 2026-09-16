@@ -48,6 +48,8 @@ export type Asset = {
   cost: number;
   /** seeded feed items carry a curated like count and a fake author */
   seeded?: boolean;
+  /** a pre-baked copy in /public; the proxied url is the fallback */
+  altUrl?: string;
 };
 
 export type Job = {

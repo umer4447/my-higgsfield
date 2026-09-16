@@ -251,7 +251,11 @@ export const SEED_ASSETS: Asset[] = SPECS.map((s, i) => {
   return {
     id: `wall-${i.toString().padStart(2, "0")}`,
     kind,
-    url: frameUrl({ prompt: s.prompt, model, ratio, preset, seed: s.seed, move }),
+    // the wall ships with its frames baked into /public so it paints instantly
+    // and never spends a visitor's rate limit; the proxy is there if a file is
+    // missing (before `npm run bake:wall` has been run, say)
+    url: `/wall/wall-${i.toString().padStart(2, "0")}.jpg`,
+    altUrl: frameUrl({ prompt: s.prompt, model, ratio, preset, seed: s.seed, move }),
     prompt: s.prompt,
     composed: preset ? preset.template.replace("{prompt}", s.prompt) : s.prompt,
     modelId: model.id,

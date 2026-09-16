@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "bake:wall": "node tools/bake-wall.mjs"
   },
   "dependencies": {
     "@fontsource/instrument-serif": "^5.3.0",

@@ -48,21 +48,33 @@ export default function Frame({
     setSrc(null);
     let started = false;
 
-    const start = () => {
-      if (started) return;
-      started = true;
-      loadFrame(asset.url, {
+    // baked copy first, proxy second: the wall ships with its frames, but a
+    // missing file must not leave a hole
+    const candidates = [asset.url, asset.altUrl].filter(Boolean) as string[];
+
+    const tryFrom = (i: number): void => {
+      if (i >= candidates.length) {
+        if (!deadRef.current) setState("err");
+        return;
+      }
+      loadFrame(candidates[i], {
         priority: priority ? PRIORITY.hero : PRIORITY.tile,
         cancelled: () => deadRef.current,
       })
         .then(() => {
           if (deadRef.current) return;
-          setSrc(asset.url);
+          setSrc(candidates[i]);
           setState("ok");
         })
         .catch(() => {
-          if (!deadRef.current) setState("err");
+          if (!deadRef.current) tryFrom(i + 1);
         });
+    };
+
+    const start = () => {
+      if (started) return;
+      started = true;
+      tryFrom(0);
     };
 
     if (priority || typeof IntersectionObserver === "undefined") {
@@ -87,15 +99,17 @@ export default function Frame({
     );
     io.observe(el);
     return () => io.disconnect();
-  }, [asset.url, priority]);
+  }, [asset.url, asset.altUrl, priority]);
 
   function retry() {
+    const url = asset.altUrl ?? asset.url;
     forget(asset.url);
+    forget(url);
     setState("waiting");
-    loadFrame(asset.url, { priority: PRIORITY.job })
+    loadFrame(url, { priority: PRIORITY.job })
       .then(() => {
         if (deadRef.current) return;
-        setSrc(asset.url);
+        setSrc(url);
         setState("ok");
       })
       .catch(() => {

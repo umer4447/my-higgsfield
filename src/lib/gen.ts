@@ -5,6 +5,10 @@
  * deliberate: the live link has to work for a stranger who has no API key of
  * their own, and it has to keep working when a hundred people open it at once.
  *
+ * Nothing calls that endpoint directly from the browser — it rate-limits per IP
+ * and answers 503 once you cross the line. Everything goes through /api/frame,
+ * which paces requests and caches each unique frame permanently. See that file.
+ *
  * Motion is a real job that produces a real generated keyframe, then plays it
  * under the camera move the preset asks for. The frame is generated; the move is
  * rendered in the browser. That is stated plainly in the UI rather than dressed
@@ -12,8 +16,6 @@
  */
 
 import { Preset, Ratio, Model, Move } from "./catalog";
-
-const ENDPOINT = "https://image.pollinations.ai/prompt/";
 
 export type GenParams = {
   prompt: string;
@@ -31,18 +33,17 @@ export function composePrompt(prompt: string, preset?: Preset | null): string {
   return preset.template.replace("{prompt}", base || "a striking subject");
 }
 
+/** The proxied URL the app actually loads. */
 export function frameUrl(p: GenParams): string {
   const full = composePrompt(p.prompt, p.preset);
-  const engine = p.model.engine;
   const qs = new URLSearchParams({
-    width: String(p.ratio.w),
-    height: String(p.ratio.h),
+    p: full,
+    w: String(p.ratio.w),
+    h: String(p.ratio.h),
     seed: String(p.seed),
-    model: engine,
-    nologo: "true",
-    referrer: "darkroom",
+    model: p.model.engine,
   });
-  return `${ENDPOINT}${encodeURIComponent(full)}?${qs.toString()}`;
+  return `/api/frame?${qs.toString()}`;
 }
 
 export function randomSeed() {

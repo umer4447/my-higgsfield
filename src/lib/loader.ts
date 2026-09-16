@@ -9,13 +9,17 @@
  *   - a job you started outranks a tile you happen to be scrolling past
  *   - failures retry with backoff before anyone is told anything went wrong
  *
+ * The hard pacing lives server-side in /api/frame, which is the only thing that
+ * talks to the generator; this queue is about not asking the browser for forty
+ * things at once.
+ *
  * Tiles only enqueue when they come near the viewport (see Frame), so opening
  * the wall queues the screenful you can see, not the whole page.
  */
 
-const MAX_IN_FLIGHT = 3;
-const MAX_ATTEMPTS = 4;
-const BASE_BACKOFF = 1400;
+const MAX_IN_FLIGHT = 4;
+const MAX_ATTEMPTS = 3;
+const BASE_BACKOFF = 2000;
 
 /** higher runs first */
 export const PRIORITY = {
