@@ -60,15 +60,21 @@ export async function GET(req: NextRequest) {
   });
   const target = `${UPSTREAM}${encodeURIComponent(prompt)}?${qs}`;
 
+  // stay inside maxDuration: better a clean 502 the client can retry than a
+  // platform timeout with no response at all
+  const DEADLINE = Date.now() + 52_000;
   const ATTEMPTS = 3;
   let lastStatus = 0;
 
   for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+    if (Date.now() > DEADLINE - 6_000) break;
     try {
       const res = await serialise(() =>
         fetch(target, {
           headers: { accept: "image/*" },
-          signal: AbortSignal.timeout(45_000),
+          signal: AbortSignal.timeout(
+            Math.max(8_000, DEADLINE - Date.now() - 2_000),
+          ),
         }),
       );
 
@@ -88,7 +94,7 @@ export async function GET(req: NextRequest) {
       lastStatus = res.status;
       // 503 here means "slow down", so slowing down is the whole remedy
       if (res.status === 503 || res.status === 429) {
-        await sleep(2500 * (attempt + 1) + Math.random() * 1500);
+        await sleep(Math.min(2500 * (attempt + 1) + Math.random() * 1500, 6_000));
         continue;
       }
       break;

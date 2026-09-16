@@ -42,3 +42,4 @@ next-env.d.ts
 darkroom-mirror.tgz
 tsconfig.tsbuildinfo
 Claude outputs/
+mirror-v*.tgz
