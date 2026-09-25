@@ -1,10 +1,24 @@
 "use client";
 
-import { PLANS, MODELS } from "@/lib/catalog";
+import { useEffect, useState } from "react";
+import { type LedgerRow, api } from "@/lib/api";
 import { useStore } from "@/lib/store";
 
 export default function PricingPage() {
-  const { state, dispatch, planName } = useStore();
+  const { me, catalog, setPlan } = useStore();
+  const PLANS = catalog?.plans ?? [];
+  const MODELS = catalog?.models ?? [];
+  const planName = me?.planName ?? "—";
+
+  // The ledger is paged server-side; the pricing page shows the recent tail.
+  const [ledger, setLedger] = useState<LedgerRow[]>([]);
+  useEffect(() => {
+    if (!me) return;
+    api
+      .ledger({ limit: 40 })
+      .then((page) => setLedger(page.data))
+      .catch(() => setLedger([]));
+  }, [me]);
 
   return (
     <div className="mx-auto max-w-[1200px] px-4 pb-32 pt-12 sm:px-6">
@@ -27,7 +41,7 @@ export default function PricingPage() {
             <div className="flex items-baseline gap-2">
               <span className="text-[13px] font-medium">{m.name}</span>
               <span className="flex-1" />
-              <span className="mono text-[15px] text-safelight">{m.cost}</span>
+              <span className="mono text-[15px] text-safelight">{m.creditCost}</span>
               <span className="label">cr</span>
             </div>
             <p className="label mt-1">{m.mode === "motion" ? "motion" : "still"}</p>
@@ -39,7 +53,7 @@ export default function PricingPage() {
 
       <div className="grid gap-4 lg:grid-cols-3">
         {PLANS.map((p) => {
-          const current = state.planId === p.id;
+          const current = me?.planId === p.id;
           return (
             <div
               key={p.id}
@@ -57,12 +71,12 @@ export default function PricingPage() {
 
               <div className="mt-6 flex items-baseline gap-1.5">
                 <span className="mono text-[34px] leading-none">
-                  {p.price === 0 ? "Free" : `$${p.price}`}
+                  {p.priceCents / 100 === 0 ? "Free" : `$${p.priceCents / 100}`}
                 </span>
-                {p.price > 0 && <span className="label">/ month</span>}
+                {p.priceCents / 100 > 0 && <span className="label">/ month</span>}
               </div>
               <p className="mono mt-1.5 text-[12px] text-safelight">
-                {p.credits.toLocaleString()} credits
+                {p.monthlyCredits.toLocaleString()} credits
               </p>
 
               <ul className="mt-6 space-y-2">
@@ -78,7 +92,7 @@ export default function PricingPage() {
               <button
                 disabled={current}
                 onClick={() =>
-                  dispatch({ t: "plan", planId: p.id, credits: p.credits })
+                  void setPlan(p.id)
                 }
                 className={`btn mt-7 w-full ${p.featured ? "btn-primary" : ""}`}
               >
@@ -101,7 +115,7 @@ export default function PricingPage() {
       <div className="flex items-baseline gap-3">
         <h2 className="display text-[28px]">Ledger</h2>
         <span className="label">
-          {planName} · {state.credits} credits
+          {planName} · {(me?.credits ?? 0)} credits
         </span>
       </div>
       <p className="mt-2 max-w-[56ch] text-[13px] leading-relaxed text-dim">
@@ -110,16 +124,16 @@ export default function PricingPage() {
       </p>
 
       <div className="card mt-5 overflow-hidden">
-        {state.ledger.length === 0 ? (
+        {ledger.length === 0 ? (
           <p className="p-5 text-[13px] text-faint">Nothing spent yet.</p>
         ) : (
-          state.ledger.slice(0, 40).map((l) => (
+          ledger.map((l) => (
             <div
               key={l.id}
               className="flex items-center gap-4 border-b border-line-soft px-4 py-2.5 last:border-0"
             >
               <span className="label w-[92px] shrink-0">
-                {new Date(l.ts).toLocaleTimeString(undefined, {
+                {new Date(l.createdAt).toLocaleTimeString(undefined, {
                   hour: "2-digit",
                   minute: "2-digit",
                 })}

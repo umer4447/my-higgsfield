@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { PRESETS, MODELS } from "@/lib/catalog";
+import { useStore } from "@/lib/store";
 
 type Item = {
   id: string;
@@ -15,6 +15,7 @@ type Item = {
 /** ⌘K. Go anywhere, or start a shot from a preset without touching the mouse. */
 export default function Palette() {
   const router = useRouter();
+  const { catalog } = useStore();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const [sel, setSel] = useState(0);
@@ -22,6 +23,8 @@ export default function Palette() {
   const listRef = useRef<HTMLDivElement>(null);
 
   const items: Item[] = useMemo(() => {
+    const MODELS = catalog?.models ?? [];
+    const PRESETS = catalog?.presets ?? [];
     const go = (href: string) => () => {
       setOpen(false);
       router.push(href);
@@ -35,21 +38,21 @@ export default function Palette() {
       ...MODELS.map((m) => ({
         id: `m-${m.id}`,
         label: `Compose with ${m.name}`,
-        hint: `${m.cost} cr · ${m.mode === "motion" ? "motion" : "still"}`,
+        hint: `${m.creditCost} cr · ${m.mode === "motion" ? "motion" : "still"}`,
         group: "Model",
         run: go(`/create?model=${m.id}`),
       })),
       ...PRESETS.map((p) => ({
         id: `p-${p.slug}`,
         label: p.name,
-        hint: `${p.family}${p.move ? ` · ${p.move}` : ""} — ${p.desc}`,
+        hint: `${p.family}${p.move ? ` · ${p.move}` : ""} — ${p.description}`,
         group: "Preset",
         run: go(
           `/create?preset=${p.slug}&model=${p.mode === "motion" ? "reel-9" : "halide-2"}`,
         ),
       })),
     ];
-  }, [router]);
+  }, [router, catalog]);
 
   const hits = useMemo(() => {
     const t = q.trim().toLowerCase();
@@ -59,7 +62,13 @@ export default function Palette() {
       .slice(0, 12);
   }, [q, items]);
 
-  useEffect(() => setSel(0), [q]);
+  // Reset the highlighted row when the query changes, during render rather
+  // than in an effect, so the list never paints with a stale selection.
+  const [lastQ, setLastQ] = useState(q);
+  if (lastQ !== q) {
+    setLastQ(q);
+    setSel(0);
+  }
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {

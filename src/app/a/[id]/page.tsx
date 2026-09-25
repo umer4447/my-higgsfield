@@ -1,159 +1,209 @@
 "use client";
 
 import Link from "next/link";
-import { use, useMemo } from "react";
-import { notFound, useRouter } from "next/navigation";
-import { useStore, modelName } from "@/lib/store";
-import { SEED_ASSETS } from "@/lib/seed";
-import { presetBySlug, modelById, ratioById } from "@/lib/catalog";
+import { use, useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { ApiError, type Asset, api } from "@/lib/api";
+import { MOVE_LABEL } from "@/lib/moves";
+import { modelName, presetName, useStore } from "@/lib/store";
 import Frame from "@/components/Frame";
 import ExportBar from "@/components/ExportBar";
 
-export default function AssetPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+/** One frame, with everything needed to remake it. */
+export default function AssetPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
-  const { state, dispatch } = useStore();
+  const { catalog, me } = useStore();
 
-  const asset = useMemo(
-    () => state.assets.find((a) => a.id === id) ?? SEED_ASSETS.find((a) => a.id === id),
-    [state.assets, id],
-  );
+  const [asset, setAsset] = useState<Asset | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  if (state.ready && !asset) notFound();
-  if (!asset) return null;
+  /* State is written from the promise callbacks, never in the effect body:
+     this is a subscription to an external system, which is what effects are
+     for. The cancelled flag stops a slow response repainting a stale frame. */
+  const [reloadAt, setReloadAt] = useState(0);
+  const reload = useCallback(() => setReloadAt((n) => n + 1), []);
 
-  const preset = asset.presetSlug ? presetBySlug(asset.presetSlug) : null;
-  const model = modelById(asset.modelId);
-  const liked = state.likedIds.includes(asset.id);
-  const mine = !asset.seeded;
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .asset(id)
+      .then((next) => {
+        if (!cancelled) {
+          setAsset(next);
+          setError(null);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(
+            err instanceof ApiError ? err.detail : "Could not load that frame.",
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, reloadAt]);
 
-  const remixHref = `/create?prompt=${encodeURIComponent(asset.prompt)}&model=${asset.modelId}&preset=${asset.presetSlug ?? ""}&ratio=${asset.ratioId}&seed=${asset.seed}`;
-
-  return (
-    <div className="mx-auto max-w-[1400px] px-4 pb-32 pt-6 sm:px-6">
-      <button onClick={() => router.back()} className="label mb-4 hover:!text-fg">
-        ← back
-      </button>
-
-      <div className="grid gap-8 lg:grid-cols-[1.25fr_1fr]">
-        <div
-          className="mx-auto w-full"
-          style={{ maxWidth: `calc(74vh * ${ratioById(asset.ratioId).w} / ${ratioById(asset.ratioId).h})` }}
-        >
-          <Frame asset={asset} priority rounded="rounded-[14px]" />
-          <ExportBar asset={asset} />
-        </div>
-
-        <div className="lg:pt-2">
-          <div className="flex items-center gap-2">
-            <span className="label">@{asset.author}</span>
-            <span className="label">·</span>
-            <span className="label">
-              {new Date(asset.createdAt).toLocaleDateString(undefined, {
-                day: "numeric",
-                month: "short",
-              })}
-            </span>
-            <span className="flex-1" />
-            <button
-              onClick={() => dispatch({ t: "like", id: asset.id })}
-              className={`mono flex items-center gap-1.5 text-[12px] ${
-                liked ? "text-safelight" : "text-faint hover:text-dim"
-              }`}
-            >
-              <svg width="13" height="13" viewBox="0 0 12 12" aria-hidden>
-                <path
-                  d="M6 10.5S1 7.6 1 4.4A2.6 2.6 0 0 1 6 3.1 2.6 2.6 0 0 1 11 4.4c0 3.2-5 6.1-5 6.1Z"
-                  fill={liked ? "currentColor" : "none"}
-                  stroke="currentColor"
-                  strokeWidth="1.1"
-                />
-              </svg>
-              {(asset.likes + (liked ? 1 : 0)).toLocaleString()}
-            </button>
-          </div>
-
-          <h1 className="display mt-3 text-[clamp(28px,3.4vw,40px)] leading-[1.06]">
-            {asset.prompt}
-          </h1>
-
-          <div className="mt-6 flex flex-wrap gap-2">
-            <Link href={remixHref} className="btn btn-primary">
-              Remix these settings
-            </Link>
-            {mine && (
-              <button
-                onClick={() =>
-                  dispatch({
-                    t: "asset:patch",
-                    id: asset.id,
-                    patch: { published: !asset.published },
-                  })
-                }
-                className="btn"
-              >
-                {asset.published ? "Unpublish" : "Publish to the wall"}
-              </button>
-            )}
-          </div>
-
-          <div className="sprocket my-7" />
-
-          <dl className="space-y-0">
-            <Row k="Model" v={`${modelName(asset.modelId)} · ${model?.cost ?? "–"} cr`} />
-            <Row
-              k="Preset"
-              v={
-                preset ? (
-                  <Link href="/presets" className="hover:text-fg">
-                    {preset.name} <span className="text-faint">({preset.family})</span>
-                  </Link>
-                ) : (
-                  "none"
-                )
-              }
-            />
-            {asset.move && <Row k="Camera" v={asset.move} />}
-            <Row k="Frame" v={asset.ratioId} />
-            <Row k="Seed" v={String(asset.seed)} />
-          </dl>
-
-          <div className="sprocket my-7" />
-
-          <div className="label mb-2">the prompt that was sent</div>
-          <p className="mono rounded-[10px] border border-line bg-sunken p-3.5 text-[11.5px] leading-relaxed text-dim">
-            {asset.composed}
-          </p>
-          <p className="mt-3 text-[12px] leading-relaxed text-faint">
-            This is the whole thing — your words plus the preset template. Nothing
-            is held back. You can copy it, change one clause and see what moves.
-          </p>
-
-          {asset.kind === "motion" && (
-            <p className="mt-6 rounded-[10px] border border-line bg-[rgba(255,90,31,0.05)] p-3.5 text-[12px] leading-relaxed text-dim">
-              <span className="label !text-safelight">how motion works here</span>
-              <br />
-              The keyframe is genuinely generated by the model. The camera move is
-              rendered in your browser from the preset, which is why it is instant
-              and why you can export it. A frame-by-frame video model is the next
-              thing to wire up, not something this is pretending to already be.
-            </p>
-          )}
-        </div>
+  if (error) {
+    return (
+      <div className="mx-auto max-w-[900px] px-6 py-24 text-center">
+        <h1 className="display text-[34px]">Not here.</h1>
+        <p className="mt-3 text-[14px] text-dim">{error}</p>
+        <Link href="/" className="btn mt-6">
+          Back to the wall
+        </Link>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
-function Row({ k, v }: { k: string; v: React.ReactNode }) {
+  if (!asset) {
+    return (
+      <div className="mx-auto max-w-[900px] px-6 py-24">
+        <p className="label">loading…</p>
+      </div>
+    );
+  }
+
+  const preset = presetName(catalog, asset.presetSlug);
+  const mine = me?.id !== undefined && !asset.seeded;
+
+  const remix = new URLSearchParams({
+    prompt: asset.prompt,
+    model: asset.modelId,
+    ratio: asset.ratioId,
+    seed: String(asset.seed),
+  });
+  if (asset.presetSlug) remix.set("preset", asset.presetSlug);
+
+  async function toggleLike() {
+    if (!asset) return;
+    const next = !asset.likedByMe;
+    setAsset({
+      ...asset,
+      likedByMe: next,
+      likeCount: asset.likeCount + (next ? 1 : -1),
+    });
+    try {
+      await (next ? api.like(asset.id) : api.unlike(asset.id));
+    } catch {
+      reload();
+    }
+  }
+
+  async function togglePublish() {
+    if (!asset || busy) return;
+    setBusy(true);
+    try {
+      setAsset(await api.publish(asset.id, !asset.published, asset.version));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.detail : "Could not publish.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    if (!asset || busy) return;
+    setBusy(true);
+    try {
+      await api.remove(asset.id);
+      router.push("/library");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <div className="flex items-baseline gap-4 border-b border-line-soft py-2.5 last:border-0">
-      <dt className="label w-[74px] shrink-0">{k}</dt>
-      <dd className="mono text-[12.5px] text-dim">{v}</dd>
+    <div className="mx-auto grid max-w-[1400px] gap-8 px-4 pb-32 pt-8 sm:px-6 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
+      <div>
+        <Frame asset={asset} priority rounded="rounded-[14px]" />
+        <ExportBar asset={asset} />
+      </div>
+
+      <div>
+        <div className="flex items-center gap-2">
+          <span className="label">@{asset.authorHandle}</span>
+          <span className="flex-1" />
+          <button
+            onClick={() => void toggleLike()}
+            data-testid="asset-like"
+            className={`mono text-[11px] ${
+              asset.likedByMe ? "text-safelight" : "text-faint hover:text-dim"
+            }`}
+          >
+            ♥ {asset.likeCount.toLocaleString()}
+          </button>
+        </div>
+
+        <h1 data-testid="asset-prompt" className="display mt-3 text-[30px] leading-[1.1]">
+          {asset.prompt}
+        </h1>
+
+        <dl className="mt-6 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-line pt-5">
+          {[
+            ["Model", modelName(catalog, asset.modelId)],
+            ["Preset", preset ?? "none"],
+            ["Frame", asset.ratioId],
+            ["Seed", String(asset.seed)],
+            ["Cost", `${asset.creditCost} cr`],
+            ...(asset.move ? [["Move", MOVE_LABEL[asset.move] ?? asset.move]] : []),
+          ].map(([k, v]) => (
+            <div key={k}>
+              <dt className="label">{k}</dt>
+              <dd className="mono mt-0.5 text-[13px] text-fg">{v}</dd>
+            </div>
+          ))}
+        </dl>
+
+        <div className="mt-6 border-t border-line pt-5">
+          <div className="label mb-2">the prompt that was actually sent</div>
+          <p
+            data-testid="asset-composed"
+            className="mono rounded-[8px] border border-line bg-sunken p-3 text-[11.5px] leading-relaxed text-dim"
+          >
+            {asset.composedPrompt}
+          </p>
+        </div>
+
+        <div className="mt-6 flex flex-wrap gap-2">
+          <Link
+            href={`/create?${remix.toString()}`}
+            data-testid="asset-remix"
+            className="btn btn-primary"
+          >
+            Remix
+          </Link>
+          {mine && (
+            <>
+              <button
+                onClick={() => void togglePublish()}
+                disabled={busy || asset.status !== "ready"}
+                className="btn"
+                data-testid="asset-publish"
+              >
+                {asset.published ? "Remove from wall" : "Publish to wall"}
+              </button>
+              <button onClick={() => void remove()} disabled={busy} className="btn">
+                Delete
+              </button>
+            </>
+          )}
+          <Link href="/" className="btn btn-ghost">
+            Back to the wall
+          </Link>
+        </div>
+
+        {asset.mode === "motion" && (
+          <p className="mt-6 rounded-[8px] border border-line bg-sunken p-3 text-[12px] leading-relaxed text-dim">
+            This is a generated keyframe played under the camera move the preset
+            asks for. The frame is generated; the move is rendered in your
+            browser — which is also why the export is a real file.
+          </p>
+        )}
+      </div>
     </div>
   );
 }

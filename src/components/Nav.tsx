@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
-import { useStore } from "@/lib/store";
+import { useState } from "react";
+import { activeJobs, useStore } from "@/lib/store";
 
 const LINKS = [
   { href: "/", label: "Wall" },
@@ -24,14 +24,19 @@ function Mark() {
 
 export default function Nav() {
   const path = usePathname();
-  const { state, planName } = useStore();
+  const { me, jobs, ready } = useStore();
   const [open, setOpen] = useState(false);
 
-  useEffect(() => setOpen(false), [path]);
+  // Adjusting state during render on a changed value, rather than in an
+  // effect: an effect would paint the menu open for one frame after
+  // navigating, then close it.
+  const [lastPath, setLastPath] = useState(path);
+  if (lastPath !== path) {
+    setLastPath(path);
+    setOpen(false);
+  }
 
-  const running = state.jobs.filter(
-    (j) => j.status === "queued" || j.status === "running",
-  ).length;
+  const running = activeJobs(jobs).length;
 
   return (
     <header className="fixed inset-x-0 top-0 z-50 border-b border-line bg-bg/85 backdrop-blur-xl">
@@ -77,13 +82,16 @@ export default function Nav() {
         <Link
           href="/pricing"
           className="group flex items-center gap-2 rounded-full border border-line bg-raised px-3 py-1.5 transition-colors hover:border-[#33333a]"
-          title={`${planName} plan`}
+          title={me ? `${me.planName} plan` : "plan"}
+          data-testid="nav-credits"
         >
           <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden>
             <circle cx="6" cy="6" r="5" stroke="var(--safelight)" strokeWidth="1.2" fill="none" />
             <circle cx="6" cy="6" r="1.8" fill="var(--safelight)" />
           </svg>
-          <span className="mono text-[12px] font-medium">{state.credits}</span>
+          <span className="mono text-[12px] font-medium" data-testid="credits-value">
+            {ready && me ? me.credits : "—"}
+          </span>
           <span className="label !text-[9px] hidden sm:inline">credits</span>
         </Link>
 

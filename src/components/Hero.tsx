@@ -2,22 +2,40 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { SEED_ASSETS } from "@/lib/seed";
-import { presetBySlug } from "@/lib/catalog";
+import { type Asset, api } from "@/lib/api";
+import { presetName, useStore } from "@/lib/store";
 import Frame from "./Frame";
 
-const FEATURED = SEED_ASSETS.filter((a) => a.kind === "motion").slice(0, 5);
-
 export default function Hero() {
+  const { catalog } = useStore();
+  const [featured, setFeatured] = useState<Asset[]>([]);
   const [i, setI] = useState(0);
 
+  // The showcase is real published motion work, fetched from the feed rather
+  // than a hardcoded list, so it reflects what is actually on the wall.
   useEffect(() => {
-    const t = setInterval(() => setI((v) => (v + 1) % FEATURED.length), 6500);
-    return () => clearInterval(t);
+    let cancelled = false;
+    api
+      .wall({ mode: "motion", limit: 5 })
+      .then((page) => {
+        if (!cancelled) setFeatured(page.data);
+      })
+      .catch(() => {
+        /* the hero copy stands on its own without the reel */
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const a = FEATURED[i];
-  const preset = a.presetSlug ? presetBySlug(a.presetSlug) : null;
+  useEffect(() => {
+    if (featured.length < 2) return;
+    const t = setInterval(() => setI((v) => (v + 1) % featured.length), 6500);
+    return () => clearInterval(t);
+  }, [featured.length]);
+
+  const a = featured.length ? featured[i % featured.length] : null;
+  const preset = a ? presetName(catalog, a.presetSlug) : null;
 
   return (
     <section className="relative overflow-hidden border-b border-line">
@@ -77,6 +95,7 @@ export default function Hero() {
         </div>
 
         {/* featured frame */}
+        {a && (
         <div className="relative">
           <div className="relative mx-auto max-w-[520px]">
             <div className="absolute -inset-3 rounded-[20px] border border-line-soft" aria-hidden />
@@ -87,7 +106,7 @@ export default function Hero() {
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[13px] text-fg">{a.prompt}</p>
                 <p className="label mt-1">
-                  {preset?.name} · {a.ratioId} · seed {a.seed}
+                  {preset ?? "no preset"} · {a.ratioId} · seed {a.seed}
                 </p>
               </div>
               <Link
@@ -98,7 +117,7 @@ export default function Hero() {
               </Link>
             </div>
             <div className="mt-3 flex gap-1.5">
-              {FEATURED.map((f, n) => (
+              {featured.map((f, n) => (
                 <button
                   key={f.id}
                   onClick={() => setI(n)}
@@ -111,6 +130,7 @@ export default function Hero() {
             </div>
           </div>
         </div>
+        )}
       </div>
     </section>
   );

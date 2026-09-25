@@ -1,35 +1,56 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
-import { Asset, useStore } from "@/lib/store";
-import { SEED_ASSETS } from "@/lib/seed";
-import { presetBySlug } from "@/lib/catalog";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { type Asset, api } from "@/lib/api";
+import { useDebouncedValue } from "@/lib/hooks/useDebouncedValue";
+import { useInfiniteCursor } from "@/lib/hooks/useInfiniteCursor";
+import { presetName, useStore } from "@/lib/store";
 import Frame from "./Frame";
 
 type Filter = "all" | "image" | "motion";
 
-export function useWallAssets(): Asset[] {
-  const { state } = useStore();
-  return useMemo(() => {
-    const mine = state.assets.filter((a) => a.published);
-    return [...mine, ...SEED_ASSETS];
-  }, [state.assets]);
-}
-
-export default function Wall({ limit }: { limit?: number }) {
-  const all = useWallAssets();
+/**
+ * The feed, served by the API and paged with a keyset cursor, so page 40 costs
+ * what page 1 costs. Search is debounced and cancellable; the server enforces a
+ * two-character minimum and its own rate limit regardless.
+ */
+export default function Wall({ limit = 24 }: { limit?: number }) {
   const [filter, setFilter] = useState<Filter>("all");
-  const [sort, setSort] = useState<"hot" | "new">("hot");
+  const [rawQuery, setRawQuery] = useState("");
+  const query = useDebouncedValue(rawQuery, 300);
+  const search = query.trim().length >= 2 ? query.trim() : null;
 
-  const items = useMemo(() => {
-    let list = all.filter((a) => (filter === "all" ? true : a.kind === filter));
-    list =
-      sort === "hot"
-        ? [...list].sort((a, b) => b.likes - a.likes)
-        : [...list].sort((a, b) => b.createdAt - a.createdAt);
-    return limit ? list.slice(0, limit) : list;
-  }, [all, filter, sort, limit]);
+  const fetchPage = useCallback(
+    (cursor: string | null, signal: AbortSignal) =>
+      api.wall({
+        cursor,
+        limit,
+        mode: filter === "all" ? null : filter,
+        q: search,
+        signal,
+      }),
+    [filter, search, limit],
+  );
+
+  const { items, loading, loadMore, error } = useInfiniteCursor<Asset>(
+    fetchPage,
+    [filter, search, limit],
+  );
+
+  const sentinel = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = sentinel.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) loadMore();
+      },
+      { rootMargin: "600px 0px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [loadMore]);
 
   return (
     <>
@@ -38,6 +59,7 @@ export default function Wall({ limit }: { limit?: number }) {
           {(["all", "image", "motion"] as Filter[]).map((f) => (
             <button
               key={f}
+              data-testid={`wall-filter-${f}`}
               onClick={() => setFilter(f)}
               className={`rounded-full border px-3 py-1.5 text-[12px] transition-colors ${
                 filter === f
@@ -50,35 +72,77 @@ export default function Wall({ limit }: { limit?: number }) {
           ))}
         </div>
         <span className="flex-1" />
-        <div className="flex gap-1">
-          {(["hot", "new"] as const).map((s) => (
-            <button
-              key={s}
-              onClick={() => setSort(s)}
-              className={`label px-2 py-1 ${sort === s ? "!text-fg" : "hover:!text-dim"}`}
-            >
-              {s}
-            </button>
-          ))}
-        </div>
+        <input
+          data-testid="wall-search"
+          value={rawQuery}
+          onChange={(e) => setRawQuery(e.target.value)}
+          placeholder="Search prompts…"
+          className="w-[220px] rounded-full border border-line bg-sunken px-3 py-1.5 text-[12px] text-fg outline-none placeholder:text-faint focus:border-[#3a3a42]"
+        />
       </div>
 
-      <div className="[column-fill:_balance] columns-2 gap-3 sm:columns-3 lg:columns-4 xl:columns-5">
+      {error && (
+        <p data-testid="wall-error" className="mb-4 text-[13px] text-red-400">
+          {error.detail}
+        </p>
+      )}
+
+      <div
+        data-testid="wall-grid"
+        className="[column-fill:_balance] columns-2 gap-3 sm:columns-3 lg:columns-4 xl:columns-5"
+      >
         {items.map((a, i) => (
           <WallCard key={a.id} asset={a} index={i} />
         ))}
       </div>
+
+      {!loading && items.length === 0 && (
+        <p data-testid="wall-empty" className="py-16 text-center text-[13px] text-dim">
+          {search ? `Nothing matches “${search}”.` : "Nothing on the wall yet."}
+        </p>
+      )}
+
+      {loading && (
+        <p data-testid="wall-loading" className="py-8 text-center label">
+          developing…
+        </p>
+      )}
+
+      <div ref={sentinel} aria-hidden className="h-px" />
     </>
   );
 }
 
 function WallCard({ asset, index }: { asset: Asset; index: number }) {
-  const { state, dispatch } = useStore();
-  const liked = state.likedIds.includes(asset.id);
-  const preset = asset.presetSlug ? presetBySlug(asset.presetSlug) : null;
+  const { catalog } = useStore();
+  const [liked, setLiked] = useState(asset.likedByMe);
+  const [count, setCount] = useState(asset.likeCount);
+  const preset = presetName(catalog, asset.presetSlug);
+
+  async function toggleLike() {
+    // Optimistic: cheap, reversible, and the server is authoritative.
+    const next = !liked;
+    setLiked(next);
+    setCount((c) => c + (next ? 1 : -1));
+    try {
+      await (next ? api.like(asset.id) : api.unlike(asset.id));
+    } catch {
+      setLiked(!next);
+      setCount((c) => c + (next ? -1 : 1));
+    }
+  }
+
+  const remix = new URLSearchParams({
+    prompt: asset.prompt,
+    model: asset.modelId,
+    ratio: asset.ratioId,
+    seed: String(asset.seed),
+  });
+  if (asset.presetSlug) remix.set("preset", asset.presetSlug);
 
   return (
     <div
+      data-testid="wall-card"
       className="group relative mb-3 break-inside-avoid rise"
       style={{ animationDelay: `${Math.min(index, 14) * 40}ms` }}
     >
@@ -88,16 +152,20 @@ function WallCard({ asset, index }: { asset: Asset; index: number }) {
 
       {/* hover sheet — the prompt is the point */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[3] translate-y-1 rounded-b-[10px] bg-gradient-to-t from-black/92 via-black/70 to-transparent p-3 pt-10 opacity-0 transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100">
-        <p className="line-clamp-2 text-[12px] leading-snug text-white/95">
+        <p
+          data-testid="wall-card-prompt"
+          className="line-clamp-2 text-[12px] leading-snug text-white/95"
+        >
           {asset.prompt}
         </p>
         <div className="mt-1.5 flex items-center gap-2">
           <span className="label !text-[8px] !text-white/55">
-            {preset ? preset.name : "no preset"}
+            {preset ?? "no preset"}
           </span>
           <span className="flex-1" />
           <Link
-            href={`/create?prompt=${encodeURIComponent(asset.prompt)}&model=${asset.modelId}&preset=${asset.presetSlug ?? ""}&ratio=${asset.ratioId}&seed=${asset.seed}`}
+            href={`/create?${remix.toString()}`}
+            data-testid="wall-card-remix"
             className="pointer-events-auto rounded-full bg-safelight px-2.5 py-1 text-[10px] font-semibold text-[#1a0700]"
           >
             Remix
@@ -106,10 +174,11 @@ function WallCard({ asset, index }: { asset: Asset; index: number }) {
       </div>
 
       <div className="mt-1.5 flex items-center gap-2 px-0.5">
-        <span className="label truncate">@{asset.author}</span>
+        <span className="label truncate">@{asset.authorHandle}</span>
         <span className="flex-1" />
         <button
-          onClick={() => dispatch({ t: "like", id: asset.id })}
+          onClick={toggleLike}
+          data-testid="wall-card-like"
           className={`mono flex items-center gap-1 text-[10px] transition-colors ${
             liked ? "text-safelight" : "text-faint hover:text-dim"
           }`}
@@ -122,7 +191,7 @@ function WallCard({ asset, index }: { asset: Asset; index: number }) {
               strokeWidth="1.1"
             />
           </svg>
-          {(asset.likes + (liked ? 1 : 0)).toLocaleString()}
+          {count.toLocaleString()}
         </button>
       </div>
     </div>

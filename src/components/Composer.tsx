@@ -2,21 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
-import {
-  MODELS,
-  PRESETS,
-  PRESET_FAMILIES,
-  RATIOS,
-  Mode,
-  modelById,
-  presetBySlug,
-  ratioById,
-} from "@/lib/catalog";
-import { composePrompt, priceJob } from "@/lib/gen";
+import { useSearchParams } from "next/navigation";
+import { ApiError, type Job, type Mode, api, newIdempotencyKey } from "@/lib/api";
+import { submitSchema, validate } from "@/lib/schemas/job";
 import { useStore } from "@/lib/store";
-import { useSubmit } from "@/lib/jobs";
 import Frame from "./Frame";
+
+const PRESET_FAMILIES = ["CAMERA", "LIGHT", "STOCK", "WORLD"] as const;
 
 const IDEAS = [
   "a fishmonger hosing down the floor at closing time",
@@ -28,60 +20,78 @@ const IDEAS = [
 ];
 
 export default function Composer() {
-  const router = useRouter();
   const params = useSearchParams();
-  const { state, dispatch } = useStore();
-  const submit = useSubmit();
+  const { me, catalog, ready, trackJob, refreshMe } = useStore();
   const areaRef = useRef<HTMLTextAreaElement>(null);
 
-  const [mode, setMode] = useState<Mode>("image");
-  const [prompt, setPrompt] = useState("");
-  const [modelId, setModelId] = useState("halide-2");
-  const [presetSlug, setPresetSlug] = useState<string | null>(null);
-  const [ratioId, setRatioId] = useState("4:5");
+  // Memoised so the dependency arrays below can name them honestly instead of
+  // being silenced: a fresh array each render would loop.
+  const MODELS = useMemo(() => catalog?.models ?? [], [catalog]);
+  const PRESETS = useMemo(() => catalog?.presets ?? [], [catalog]);
+  const RATIOS = useMemo(() => catalog?.ratios ?? [], [catalog]);
+  const modelById = (id: string) => MODELS.find((m) => m.id === id);
+  const presetBySlug = (slug: string) => PRESETS.find((p) => p.slug === slug);
+  const ratioById = (id: string) => RATIOS.find((r) => r.id === id) ?? RATIOS[0];
+
+  /* ---- remix: hydrate from the query string ----
+     Read during the first render rather than in an effect. An effect would
+     paint the default composer, then replace it, which is a visible flash on
+     every Remix click. */
+  const qsModel = params.get("model");
+  const qsPreset = params.get("preset");
+  const qsRatio = params.get("ratio");
+  const qsSeed = params.get("seed");
+  const remixModel = qsModel && modelById(qsModel) ? qsModel : null;
+
+  const [mode, setMode] = useState<Mode>(
+    remixModel ? modelById(remixModel)!.mode : "image",
+  );
+  const [prompt, setPrompt] = useState(() => params.get("prompt") ?? "");
+  const [modelId, setModelId] = useState(remixModel ?? "halide-2");
+  const [presetSlug, setPresetSlug] = useState<string | null>(
+    qsPreset && presetBySlug(qsPreset) ? qsPreset : null,
+  );
+  const [ratioId, setRatioId] = useState(
+    qsRatio && RATIOS.some((x) => x.id === qsRatio) ? qsRatio : "4:5",
+  );
   const [batch, setBatch] = useState(2);
-  const [lockSeed, setLockSeed] = useState<number | null>(null);
+  const [lockSeed, setLockSeed] = useState<number | null>(
+    qsSeed && !Number.isNaN(Number(qsSeed)) ? Number(qsSeed) : null,
+  );
   const [family, setFamily] = useState<string>("All");
   const [err, setErr] = useState<string | null>(null);
   const [lastJobId, setLastJobId] = useState<string | null>(null);
   const [showFull, setShowFull] = useState(false);
 
-  /* ---- remix: hydrate from the query string ---- */
+  /* Focus the prompt when arriving from a Remix link. Focus is a DOM effect,
+     which is what effects are for; the state above is not. */
   useEffect(() => {
-    const p = params.get("prompt");
-    const m = params.get("model");
-    const pr = params.get("preset");
-    const r = params.get("ratio");
-    const s = params.get("seed");
-    if (p) setPrompt(p);
-    if (m && modelById(m)) {
-      setModelId(m);
-      setMode(modelById(m)!.mode);
+    if (params.get("prompt")) {
+      const t = setTimeout(() => areaRef.current?.focus(), 60);
+      return () => clearTimeout(t);
     }
-    if (pr && presetBySlug(pr)) setPresetSlug(pr);
-    if (r && RATIOS.some((x) => x.id === r)) setRatioId(r);
-    if (s && !Number.isNaN(Number(s))) setLockSeed(Number(s));
-    if (p) setTimeout(() => areaRef.current?.focus(), 60);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const models = useMemo(() => MODELS.filter((m) => m.mode === mode), [mode]);
+  const models = useMemo(() => MODELS.filter((m) => m.mode === mode), [MODELS, mode]);
   const model = modelById(modelId) ?? models[0];
   const preset = presetSlug ? presetBySlug(presetSlug) ?? null : null;
   const ratio = ratioById(ratioId);
 
-  /* keep model and mode consistent */
-  useEffect(() => {
-    if (model.mode !== mode) setModelId(models[0].id);
-    if (batch > model.maxBatch) setBatch(model.maxBatch);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, modelId]);
-
+  /* Keep model, batch and preset consistent with the mode. Adjusted during
+     render rather than in effects: an effect would let one frame paint with a
+     motion preset on an image model, and the cost readout would be wrong for
+     that frame. */
+  if (model && model.mode !== mode && models.length) {
+    setModelId(models[0].id);
+  }
+  if (model && batch > model.maxBatch) {
+    setBatch(model.maxBatch);
+  }
   /* a motion job needs a preset that carries a camera move */
-  useEffect(() => {
-    if (mode === "motion" && preset && !preset.move) setPresetSlug(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode]);
+  if (mode === "motion" && preset && !preset.move) {
+    setPresetSlug(null);
+  }
 
   const visiblePresets = useMemo(
     () =>
@@ -90,38 +100,113 @@ export default function Composer() {
           (mode === "image" ? true : !!p.move) &&
           (family === "All" || p.family === family),
       ),
-    [mode, family],
+    [PRESETS, mode, family],
   );
 
-  const price = priceJob(model, batch, preset);
-  const affordable = state.credits >= price.total;
-  const composed = composePrompt(prompt, preset);
+  /* The cost on the button comes from the server that will charge it, quoted
+     by the same function that performs the debit. Rendered optimistically from
+     the catalog first so the number does not flicker while the quote lands. */
+  const optimistic = model
+    ? model.creditCost * batch + (preset?.move ? batch : 0)
+    : 0;
+  const [quoted, setQuoted] = useState<number | null>(null);
+  const total = quoted ?? optimistic;
+  const affordable = (me?.credits ?? 0) >= total;
+  const composed = preset
+    ? preset.template.replace("{prompt}", prompt.trim() || "a striking subject")
+    : prompt.trim();
 
-  const lastJob = state.jobs.find((j) => j.id === lastJobId);
-  const lastAssets = lastJob
-    ? state.assets.filter((a) => lastJob.assetIds.includes(a.id))
-    : [];
+  useEffect(() => {
+    if (!model || !me) return;
+    const controller = new AbortController();
+    api
+      .quote({ modelId: model.id, batch, presetSlug: preset?.slug ?? null })
+      .then((q) => {
+        if (!controller.signal.aborted) setQuoted(q.total);
+      })
+      .catch(() => setQuoted(null));
+    return () => controller.abort();
+  }, [model, batch, preset, me]);
 
-  function go() {
+  const [lastJob, setLastJob] = useState<Job | null>(null);
+  const [pending, setPending] = useState(false);
+  const keyRef = useRef<string | null>(null);
+
+  /* Keep the result panel in step with the tray: the SSE stream updates the
+     store, and the job we just submitted is in it. */
+  const { jobs } = useStore();
+  const trackedJob = lastJobId ? jobs.find((j) => j.id === lastJobId) ?? lastJob : null;
+  const lastAssets = trackedJob?.outputs ?? [];
+
+  async function go() {
+    if (pending || !model || !ratio) return;
     setErr(null);
-    const res = submit({ prompt, model, ratio, preset, batch, seed: lockSeed });
-    if (!res.ok) {
-      setErr(res.reason ?? "Something went wrong.");
+
+    const body = {
+      prompt: prompt.trim(),
+      modelId: model.id,
+      ratioId: ratio.id,
+      presetSlug: preset?.slug ?? null,
+      batch,
+      seed: lockSeed,
+    };
+
+    // Yup first: an error next to the field beats a round trip.
+    const check = await validate(submitSchema, body);
+    if (!check.ok) {
+      setErr(Object.values(check.errors)[0] ?? "Check the form.");
       return;
     }
-    setLastJobId(res.jobId!);
+
+    // One key per submission intent, held across retries of that submission.
+    keyRef.current = keyRef.current ?? newIdempotencyKey();
+    setPending(true);
+    try {
+      const job = await api.submit(body, keyRef.current);
+      keyRef.current = null;
+      setLastJob(job);
+      setLastJobId(job.id);
+      trackJob(job);
+      await refreshMe();
+    } catch (error) {
+      if (error instanceof ApiError) {
+        setErr(
+          error.retryAfter
+            ? `${error.detail} (retry in ${error.retryAfter}s)`
+            : error.detail,
+        );
+        // A transient failure keeps the key, so a retry is the same submission.
+        if (!error.isTransient) keyRef.current = null;
+      } else {
+        setErr("Could not reach the server.");
+      }
+    } finally {
+      setPending(false);
+    }
   }
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
         e.preventDefault();
-        go();
+        void go();
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   });
+
+  /* The composer is entirely catalog-driven: models, presets, ratios and the
+     price all come from the server. Rendering before it arrives means a
+     controls panel with no controls, so hold the frame instead. Reaching
+     /create directly, rather than from a Remix link, is exactly that case. */
+  if (!ready || !catalog || !model || !ratio) {
+    return (
+      <div className="mx-auto max-w-[1500px] px-6 py-24" data-testid="composer-loading">
+        <div className="label">loading composer…</div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto grid max-w-[1500px] gap-6 px-4 pb-32 pt-6 sm:px-6 lg:grid-cols-[404px_1fr]">
@@ -207,7 +292,7 @@ export default function Composer() {
                       {m.blurb}
                     </span>
                   </span>
-                  <span className="mono shrink-0 text-[11px] text-dim">{m.cost}cr</span>
+                  <span className="mono shrink-0 text-[11px] text-dim">{m.creditCost}cr</span>
                 </button>
               ))}
             </div>
@@ -315,27 +400,31 @@ export default function Composer() {
               ))}
             </div>
             {preset && (
-              <p className="mt-2 text-[11.5px] leading-snug text-faint">{preset.desc}</p>
+              <p className="mt-2 text-[11.5px] leading-snug text-faint">{preset.description}</p>
             )}
           </div>
 
           {/* submit */}
           <div className="sticky bottom-0 z-20 rounded-b-[14px] border-t border-line bg-sunken/95 p-3 backdrop-blur-md">
             <button
-              onClick={go}
-              disabled={!prompt.trim() || !affordable}
+              onClick={() => void go()}
+              data-testid="develop"
+              disabled={!prompt.trim() || !affordable || pending || !ready}
               className="btn btn-primary !h-11 w-full !text-[14px]"
             >
-              Develop
-              <span className="mono ml-1 rounded-full bg-black/15 px-2 py-0.5 text-[11px]">
-                {price.total} cr
+              {pending ? "Submitting…" : "Develop"}
+              <span
+                data-testid="develop-cost"
+                className="mono ml-1 rounded-full bg-black/15 px-2 py-0.5 text-[11px]"
+              >
+                {total} cr
               </span>
             </button>
             <div className="mt-2 flex items-center gap-2">
               <span className="label !text-[9px]">
-                {model.cost}×{batch}
-                {price.moveSurcharge ? ` + ${price.moveSurcharge} move` : ""} ·{" "}
-                {state.credits} left
+                {model ? model.creditCost : 0}×{batch}
+                {preset?.move ? ` + ${batch} move` : ""} ·{" "}
+                {me?.credits ?? 0} left
               </span>
               <span className="flex-1" />
               <span className="label !text-[9px]">⌘↵</span>
@@ -349,7 +438,11 @@ export default function Composer() {
                 .
               </p>
             )}
-            {err && <p className="mt-2 text-[11.5px] text-stop">{err}</p>}
+            {err && (
+              <p data-testid="composer-error" className="mt-2 text-[11.5px] text-stop">
+                {err}
+              </p>
+            )}
           </div>
         </div>
 
@@ -369,15 +462,26 @@ export default function Composer() {
 
       {/* ------------------------------ results ------------------------------ */}
       <div>
-        {lastJob ? (
+        {trackedJob ? (
           <>
             <div className="mb-3 flex items-baseline gap-3">
-              <h2 className="display text-[26px]">
-                {lastJob.status === "done" ? "Fixed" : "Developing"}
+              <h2 data-testid="result-heading" className="display text-[26px]">
+                {trackedJob.status === "succeeded"
+                  ? "Fixed"
+                  : trackedJob.status === "partial"
+                    ? "Partly fixed"
+                    : trackedJob.status === "failed"
+                      ? "Lost"
+                      : trackedJob.status === "cancelled"
+                        ? "Cancelled"
+                        : "Developing"}
               </h2>
-              <span className="label">
+              <span className="label" data-testid="result-meta">
                 {lastAssets.length} frame{lastAssets.length === 1 ? "" : "s"} ·{" "}
-                {lastJob.cost} credits
+                {trackedJob.creditsDebited} credits
+                {trackedJob.creditsRefunded > 0
+                  ? ` · ${trackedJob.creditsRefunded} refunded`
+                  : ""}
               </span>
               <span className="flex-1" />
               <Link href="/library" className="label hover:!text-fg">
@@ -389,41 +493,93 @@ export default function Composer() {
                 lastAssets.length > 2 ? "sm:grid-cols-3" : "sm:grid-cols-2"
               }`}
             >
-              {lastAssets.map((a, i) => (
-                <div key={a.id} className="rise" style={{ animationDelay: `${i * 70}ms` }}>
-                  <Link href={`/a/${a.id}`} className="block">
-                    <Frame asset={a} priority />
-                  </Link>
-                  <div className="mt-1.5 flex items-center gap-2">
-                    <span className="label">seed {a.seed}</span>
-                    <span className="flex-1" />
-                    <button
-                      className="label hover:!text-fg"
-                      onClick={() => setLockSeed(a.seed)}
-                      title="Lock this seed and change the prompt"
-                    >
-                      lock seed
-                    </button>
-                    <button
-                      className="label hover:!text-fg"
-                      onClick={() =>
-                        dispatch({
-                          t: "asset:patch",
-                          id: a.id,
-                          patch: { published: !a.published },
-                        })
-                      }
-                    >
-                      {a.published ? "on the wall" : "publish"}
-                    </button>
-                  </div>
-                </div>
+              {lastAssets.map((o, i) => (
+                <ResultTile
+                  key={o.id}
+                  output={o}
+                  job={trackedJob}
+                  index={i}
+                  onLockSeed={() => setLockSeed(o.seed)}
+                />
               ))}
             </div>
           </>
         ) : (
           <EmptyState onPick={(p) => setPrompt(p)} />
         )}
+      </div>
+    </div>
+  );
+}
+
+function ResultTile({
+  output,
+  job,
+  index,
+  onLockSeed,
+}: {
+  output: Job["outputs"][number];
+  job: Job;
+  index: number;
+  onLockSeed: () => void;
+}) {
+  const [published, setPublished] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  async function togglePublish() {
+    if (busy || output.status !== "ready") return;
+    setBusy(true);
+    const next = !published;
+    try {
+      await api.publish(output.id, next);
+      setPublished(next);
+    } catch {
+      /* the server is authoritative; leave the label as it was */
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      className="rise"
+      data-testid="result-tile"
+      data-output-status={output.status}
+      style={{ animationDelay: `${index * 70}ms` }}
+    >
+      <Link href={`/a/${output.id}`} className="block">
+        <Frame
+          asset={{
+            id: output.id,
+            mode: job.mode,
+            status: output.status,
+            prompt: job.prompt,
+            url: output.url,
+            move: job.move,
+            width: output.width,
+            height: output.height,
+          }}
+          priority
+        />
+      </Link>
+      <div className="mt-1.5 flex items-center gap-2">
+        <span className="label">seed {output.seed}</span>
+        <span className="flex-1" />
+        <button
+          className="label hover:!text-fg"
+          onClick={onLockSeed}
+          title="Lock this seed and change the prompt"
+        >
+          lock seed
+        </button>
+        <button
+          className="label hover:!text-fg disabled:opacity-40"
+          onClick={() => void togglePublish()}
+          disabled={output.status !== "ready" || busy}
+          data-testid="publish-toggle"
+        >
+          {published ? "on the wall" : "publish"}
+        </button>
       </div>
     </div>
   );

@@ -1,21 +1,19 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Asset } from "@/lib/store";
-import { MOVE_CLASS } from "@/lib/gen";
-import { ratioById } from "@/lib/catalog";
-import { loadFrame, forget, PRIORITY } from "@/lib/loader";
+import { useState } from "react";
+import type { Asset } from "@/lib/api";
+import { MOVE_CLASS } from "@/lib/moves";
 
 /**
  * One generated frame.
  *
- * Nothing is requested until the tile is close to the viewport, and when it is,
- * it goes through the global queue rather than straight at the endpoint — two
- * dozen simultaneous diffusion requests get refused, not served.
+ * Much smaller than it was: the client used to run a priority queue in front of
+ * the generator because two dozen simultaneous diffusion requests get refused.
+ * The server paces now -- a token bucket and a concurrency throttle shared
+ * across instances -- so this is a plain image with native lazy loading.
  *
- * Motion assets are the generated keyframe played under the preset's camera
- * move. The move is a CSS transform, which is why it is smooth at any size and
- * costs nothing to scrub — and why the UI never calls it a video model.
+ * `asset.url` is always one of ours (/v1/frames/:id), never an upstream or
+ * storage location, and it is null until the frame is READY.
  */
 export default function Frame({
   asset,
@@ -24,119 +22,48 @@ export default function Frame({
   className = "",
   rounded = "rounded-[10px]",
 }: {
-  asset: Asset;
+  asset: Pick<Asset, "id" | "mode" | "status" | "prompt" | "url" | "move" | "width" | "height">;
   play?: boolean;
   priority?: boolean;
   className?: string;
   rounded?: string;
 }) {
-  const [state, setState] = useState<"waiting" | "ok" | "err">("waiting");
-  const [src, setSrc] = useState<string | null>(null);
-  const boxRef = useRef<HTMLDivElement>(null);
-  const deadRef = useRef(false);
-  const ratio = ratioById(asset.ratioId);
+  const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
-  useEffect(() => {
-    deadRef.current = false;
-    return () => {
-      deadRef.current = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    setState("waiting");
-    setSrc(null);
-    let started = false;
-
-    // baked copy first, proxy second: the wall ships with its frames, but a
-    // missing file must not leave a hole
-    const candidates = [asset.url, asset.altUrl].filter(Boolean) as string[];
-
-    const tryFrom = (i: number): void => {
-      if (i >= candidates.length) {
-        if (!deadRef.current) setState("err");
-        return;
-      }
-      loadFrame(candidates[i], {
-        priority: priority ? PRIORITY.hero : PRIORITY.tile,
-        cancelled: () => deadRef.current,
-      })
-        .then(() => {
-          if (deadRef.current) return;
-          setSrc(candidates[i]);
-          setState("ok");
-        })
-        .catch(() => {
-          if (!deadRef.current) tryFrom(i + 1);
-        });
-    };
-
-    const start = () => {
-      if (started) return;
-      started = true;
-      tryFrom(0);
-    };
-
-    if (priority || typeof IntersectionObserver === "undefined") {
-      start();
-      return;
-    }
-
-    const el = boxRef.current;
-    if (!el) {
-      start();
-      return;
-    }
-    // begin well before the tile is on screen so scrolling feels instant
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((e) => e.isIntersecting)) {
-          start();
-          io.disconnect();
-        }
-      },
-      { rootMargin: "700px 0px" },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [asset.url, asset.altUrl, priority]);
+  const pending = asset.status === "pending" || asset.status === "running";
+  const src = asset.url ? `${asset.url}${attempt ? `?retry=${attempt}` : ""}` : null;
+  const moveClass = asset.mode === "motion" && asset.move && play
+    ? MOVE_CLASS[asset.move] ?? ""
+    : "";
 
   function retry() {
-    const url = asset.altUrl ?? asset.url;
-    forget(asset.url);
-    forget(url);
-    setState("waiting");
-    loadFrame(url, { priority: PRIORITY.job })
-      .then(() => {
-        if (deadRef.current) return;
-        setSrc(url);
-        setState("ok");
-      })
-      .catch(() => {
-        if (!deadRef.current) setState("err");
-      });
+    setFailed(false);
+    setLoaded(false);
+    setAttempt((n) => n + 1);
   }
-
-  const moveClass =
-    asset.kind === "motion" && asset.move && play ? MOVE_CLASS[asset.move] : "";
 
   return (
     <div
-      ref={boxRef}
+      data-testid="frame"
+      data-frame-status={asset.status}
       className={`relative overflow-hidden bg-sunken ${rounded} ${
-        asset.kind === "motion" ? "bloom scanline" : ""
+        asset.mode === "motion" ? "bloom scanline" : ""
       } ${className}`}
-      style={{ aspectRatio: `${ratio.w} / ${ratio.h}` }}
+      style={{ aspectRatio: `${asset.width} / ${asset.height}` }}
     >
-      {state === "waiting" && (
+      {(pending || (!loaded && !failed && src)) && (
         <div className="absolute inset-0 developing">
           <div className="absolute inset-0 grid place-items-center">
-            <span className="label !text-[9px] opacity-60">developing</span>
+            <span className="label !text-[9px] opacity-60">
+              {pending ? "developing" : "loading"}
+            </span>
           </div>
         </div>
       )}
 
-      {state === "err" && (
+      {(failed || asset.status === "failed") && (
         <div className="absolute inset-0 grid place-items-center bg-raised px-4 text-center">
           <div>
             <div className="label mb-1.5">frame lost</div>
@@ -150,22 +77,24 @@ export default function Frame({
         </div>
       )}
 
-      {src && (
+      {src && !failed && (
         /* eslint-disable-next-line @next/next/no-img-element */
         <img
           src={src}
           alt={asset.prompt}
+          loading={priority ? "eager" : "lazy"}
           decoding="async"
-          /* the queue already pulled this into cache; if the cache missed, re-ask */
-          onError={retry}
+          fetchPriority={priority ? "high" : "auto"}
+          onLoad={() => setLoaded(true)}
+          onError={() => setFailed(true)}
           className={`h-full w-full object-cover transition-opacity duration-700 ${
-            state === "ok" ? "opacity-100" : "opacity-0"
+            loaded ? "opacity-100" : "opacity-0"
           } ${moveClass}`}
-          style={{ ["--dur" as string]: asset.kind === "motion" ? "6s" : undefined }}
+          style={{ ["--dur" as string]: asset.mode === "motion" ? "6s" : undefined }}
         />
       )}
 
-      {asset.kind === "motion" && state === "ok" && (
+      {asset.mode === "motion" && loaded && (
         <div className="pointer-events-none absolute left-2 top-2 z-[3] flex items-center gap-1.5 rounded-full bg-black/55 px-2 py-1 backdrop-blur-sm">
           <span className="h-1.5 w-1.5 rounded-full bg-safelight pulse-dot" />
           <span className="label !text-[8px] !text-white/80">motion</span>

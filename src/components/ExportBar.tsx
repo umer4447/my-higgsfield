@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Asset } from "@/lib/store";
-import { Move, ratioById } from "@/lib/catalog";
+import type { Asset } from "@/lib/api";
 
 /**
  * Downloads.
@@ -13,6 +12,7 @@ import { Move, ratioById } from "@/lib/catalog";
  * and the file you get is the thing you were looking at.
  */
 
+type Move = string;
 type Tf = { s: number; x: number; y: number; r: number; blur: number };
 
 const EASE = (t: number) => 0.5 - Math.cos(Math.PI * t) / 2;
@@ -53,14 +53,24 @@ const MOVES: Record<Move, (t: number) => Tf> = {
   dolly: (t) => ({ s: 1.18, x: -0.05 + 0.1 * EASE(PP(t)), y: 0, r: 0, blur: 0 }),
 };
 
+/**
+ * `asset.url` is null until the frame is READY, and every handler here needs it.
+ * Guarding once in a wrapper gives the body a non-null `src` rather than a
+ * null check in each function.
+ */
 export default function ExportBar({ asset }: { asset: Asset }) {
+  if (!asset.url) return null;
+  return <ReadyExportBar asset={asset} src={asset.url} />;
+}
+
+function ReadyExportBar({ asset, src }: { asset: Asset; src: string }) {
   const [busy, setBusy] = useState<null | string>(null);
   const [note, setNote] = useState<string | null>(null);
 
   async function loadImage(): Promise<HTMLImageElement> {
     const img = new Image();
     img.crossOrigin = "anonymous";
-    img.src = asset.url;
+    img.src = src;
     await img.decode();
     return img;
   }
@@ -69,11 +79,11 @@ export default function ExportBar({ asset }: { asset: Asset }) {
     setBusy("still");
     setNote(null);
     try {
-      const res = await fetch(asset.url);
+      const res = await fetch(src);
       const blob = await res.blob();
       save(blob, `darkroom-${asset.seed}.jpg`);
     } catch {
-      window.open(asset.url, "_blank");
+      window.open(src, "_blank");
     } finally {
       setBusy(null);
     }
@@ -84,9 +94,8 @@ export default function ExportBar({ asset }: { asset: Asset }) {
     setNote(null);
     try {
       const img = await loadImage();
-      const ratio = ratioById(asset.ratioId);
-      const W = Math.min(960, ratio.w);
-      const H = Math.round((W * ratio.h) / ratio.w);
+      const W = Math.min(960, asset.width);
+      const H = Math.round((W * asset.height) / asset.width);
       const canvas = document.createElement("canvas");
       canvas.width = W;
       canvas.height = H;
@@ -143,7 +152,7 @@ export default function ExportBar({ asset }: { asset: Asset }) {
         <button onClick={downloadStill} disabled={!!busy} className="btn !h-8 !px-3 !text-[12px]">
           {busy === "still" ? "saving…" : "Download frame"}
         </button>
-        {asset.kind === "motion" && (
+        {asset.mode === "motion" && (
           <button
             onClick={exportMotion}
             disabled={!!busy}

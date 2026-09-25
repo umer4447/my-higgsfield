@@ -4,7 +4,6 @@ import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import "./globals.css";
 import { StoreProvider } from "@/lib/store";
-import { JobRunner } from "@/lib/jobs";
 import Nav from "@/components/Nav";
 import JobTray from "@/components/JobTray";
 import Footer from "@/components/Footer";
@@ -33,7 +32,6 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${display.variable} ${GeistSans.variable} ${GeistMono.variable}`}>
         <StoreProvider>
-          <JobRunner />
           <Nav />
           <Palette />
           <main className="pt-[57px]">{children}</main>
