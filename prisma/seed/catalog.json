@@ -1,0 +1,330 @@
+{
+  "models": [
+    {
+      "id": "halide-2",
+      "name": "Halide 2",
+      "vendor": "Darkroom",
+      "mode": "image",
+      "cost": 2,
+      "blurb": "House model. Best all-round detail and prompt adherence.",
+      "engine": "flux",
+      "badge": "flagship",
+      "maxBatch": 4
+    },
+    {
+      "id": "halide-flash",
+      "name": "Halide Flash",
+      "vendor": "Darkroom",
+      "mode": "image",
+      "cost": 1,
+      "blurb": "Half the credits, roughly a third of the wait. Good for exploring.",
+      "engine": "turbo",
+      "badge": "fast",
+      "maxBatch": 6
+    },
+    {
+      "id": "plate",
+      "name": "Plate",
+      "vendor": "Darkroom",
+      "mode": "image",
+      "cost": 3,
+      "blurb": "Large-format look. Slower, holds fine texture and skin.",
+      "engine": "flux",
+      "maxBatch": 2
+    },
+    {
+      "id": "reel-9",
+      "name": "Reel 9",
+      "vendor": "Darkroom",
+      "mode": "motion",
+      "cost": 18,
+      "blurb": "Keyframe plus camera move. 5s loop, 1080p.",
+      "engine": "flux",
+      "badge": "flagship",
+      "maxBatch": 2
+    },
+    {
+      "id": "reel-mini",
+      "name": "Reel Mini",
+      "vendor": "Darkroom",
+      "mode": "motion",
+      "cost": 9,
+      "blurb": "Shorter, softer. Cheap way to test a move before committing.",
+      "engine": "turbo",
+      "badge": "fast",
+      "maxBatch": 3
+    }
+  ],
+  "ratios": [
+    {
+      "id": "9:16",
+      "label": "9:16",
+      "w": 576,
+      "h": 1024,
+      "note": "Vertical / social"
+    },
+    {
+      "id": "1:1",
+      "label": "1:1",
+      "w": 832,
+      "h": 832,
+      "note": "Square"
+    },
+    {
+      "id": "4:5",
+      "label": "4:5",
+      "w": 704,
+      "h": 880,
+      "note": "Portrait feed"
+    },
+    {
+      "id": "16:9",
+      "label": "16:9",
+      "w": 1024,
+      "h": 576,
+      "note": "Widescreen"
+    },
+    {
+      "id": "21:9",
+      "label": "21:9",
+      "w": 1120,
+      "h": 480,
+      "note": "Anamorphic"
+    }
+  ],
+  "presets": [
+    {
+      "slug": "anamorphic-night",
+      "name": "Anamorphic Night",
+      "family": "Camera",
+      "mode": "motion",
+      "desc": "Wet streets, blue-hour spill, oval bokeh and a horizontal flare across the frame.",
+      "template": "{prompt}, shot on anamorphic lenses at night, wet asphalt reflections, blue hour, oval bokeh, horizontal lens flare, shallow depth of field, cinematic colour grade, 35mm",
+      "move": "dolly",
+      "previewSeed": 811,
+      "previewPrompt": "a courier on a scooter stopped at a crossing in the rain"
+    },
+    {
+      "slug": "product-plinth",
+      "name": "Product Plinth",
+      "family": "Light",
+      "mode": "motion",
+      "desc": "Studio sweep, one hard key, a slow orbit. Built for a single object.",
+      "template": "{prompt}, centred on a stone plinth in an infinite seamless studio sweep, single hard key light from upper left, deep falloff, crisp specular highlights, commercial product photography, macro detail",
+      "move": "orbit",
+      "previewSeed": 202,
+      "previewPrompt": "a brushed titanium fragrance bottle"
+    },
+    {
+      "slug": "earth-pull",
+      "name": "Earth Pull",
+      "family": "World",
+      "mode": "motion",
+      "desc": "Start tight on the subject and pull until the geography takes over.",
+      "template": "{prompt}, extreme wide aerial establishing shot, subject tiny in an enormous landscape, atmospheric haze, top-down satellite perspective, dramatic scale",
+      "move": "pull",
+      "previewSeed": 5,
+      "previewPrompt": "a lone figure on a salt flat at sunrise"
+    },
+    {
+      "slug": "kodachrome-64",
+      "name": "Kodachrome 64",
+      "family": "Stock",
+      "mode": "image",
+      "desc": "Warm reds, deep blacks, that particular 1970s documentary honesty.",
+      "template": "{prompt}, shot on Kodachrome 64, warm saturated reds, deep contrast blacks, slight grain, 1970s documentary photography, natural light",
+      "previewSeed": 64,
+      "previewPrompt": "two mechanics outside a roadside garage in summer"
+    },
+    {
+      "slug": "portra-soft",
+      "name": "Portra Soft",
+      "family": "Stock",
+      "mode": "image",
+      "desc": "Creamy highlights, honest skin, the safest beautiful default there is.",
+      "template": "{prompt}, shot on Kodak Portra 400, soft creamy highlights, neutral accurate skin tones, fine grain, natural window light, medium format",
+      "previewSeed": 400,
+      "previewPrompt": "a portrait of a woman by a kitchen window, morning"
+    },
+    {
+      "slug": "hard-flash",
+      "name": "Hard Flash",
+      "family": "Light",
+      "mode": "image",
+      "desc": "Direct on-camera flash, blown foreground, black background. Editorial and rude.",
+      "template": "{prompt}, direct on-camera flash, harsh specular highlights, blown out foreground, pitch black background, sharp shadow edge, 90s editorial fashion snapshot",
+      "previewSeed": 90,
+      "previewPrompt": "a model in a wet trench coat against a wall"
+    },
+    {
+      "slug": "impact-frame",
+      "name": "Impact Frame",
+      "family": "Camera",
+      "mode": "motion",
+      "desc": "Handheld, over-cranked, dust in the air. Six frames of shake on the hit.",
+      "template": "{prompt}, handheld camera, dust and debris suspended in air, over-cranked slow motion, harsh directional sunlight, gritty action cinematography, high shutter speed",
+      "move": "shake",
+      "previewSeed": 777,
+      "previewPrompt": "a stunt driver sliding a car through a dust cloud"
+    },
+    {
+      "slug": "miniature-world",
+      "name": "Miniature World",
+      "family": "World",
+      "mode": "motion",
+      "desc": "Tilt-shift so extreme the real thing looks like a model on a table.",
+      "template": "{prompt}, extreme tilt-shift miniature effect, hyper-saturated colour, top-down three-quarter view, tiny people, looks like a scale model diorama",
+      "move": "crane",
+      "previewSeed": 31,
+      "previewPrompt": "a harbour full of container ships at midday"
+    },
+    {
+      "slug": "cold-open",
+      "name": "Cold Open",
+      "family": "Camera",
+      "mode": "motion",
+      "desc": "Teal and steel, negative space, a slow push. The first shot of a thriller.",
+      "template": "{prompt}, cold teal and steel colour grade, enormous negative space, subject small and off-centre, fog, tungsten practicals, cinematic widescreen composition",
+      "move": "push",
+      "previewSeed": 1201,
+      "previewPrompt": "a figure at the end of an empty underground platform"
+    },
+    {
+      "slug": "riso-print",
+      "name": "Riso Print",
+      "family": "Stock",
+      "mode": "image",
+      "desc": "Two-colour risograph misregistration, paper tooth, halftone dots.",
+      "template": "{prompt}, two-colour risograph print, fluorescent pink and blue inks, visible halftone dots, slight misregistration, rough paper texture, screen-printed poster",
+      "previewSeed": 22,
+      "previewPrompt": "a cyclist climbing a mountain switchback"
+    },
+    {
+      "slug": "sodium-vapour",
+      "name": "Sodium Vapour",
+      "family": "Light",
+      "mode": "image",
+      "desc": "That orange car-park light that makes everything look like a crime scene.",
+      "template": "{prompt}, lit only by orange sodium vapour street lamps, monochromatic amber cast, deep shadows, empty concrete, long exposure, night photography",
+      "previewSeed": 589,
+      "previewPrompt": "an empty multi-storey car park at 3am"
+    },
+    {
+      "slug": "float-away",
+      "name": "Float Away",
+      "family": "World",
+      "mode": "motion",
+      "desc": "Everything the subject owns, suspended mid-air, perfectly still.",
+      "template": "{prompt}, all objects suspended and floating in mid-air around the subject, zero gravity, perfectly frozen mid-fall, soft directional light, surreal product photography",
+      "move": "float",
+      "previewSeed": 909,
+      "previewPrompt": "a woman walking as her groceries hang in the air around her"
+    },
+    {
+      "slug": "brutal-concrete",
+      "name": "Brutal Concrete",
+      "family": "World",
+      "mode": "image",
+      "desc": "Board-marked concrete, hard geometry, one human for scale.",
+      "template": "{prompt}, brutalist board-marked concrete architecture, hard geometric shadows, overcast diffuse light, single human figure for scale, architectural photography, symmetrical",
+      "previewSeed": 1968,
+      "previewPrompt": "a stairwell in a concrete cultural centre"
+    },
+    {
+      "slug": "whip-cut",
+      "name": "Whip Cut",
+      "family": "Camera",
+      "mode": "motion",
+      "desc": "A fast lateral with real motion blur. Cuts hide inside the smear.",
+      "template": "{prompt}, fast lateral camera whip pan, heavy directional motion blur, vivid street colour, energetic documentary style",
+      "move": "whip",
+      "previewSeed": 44,
+      "previewPrompt": "a night market street crowded with neon signs"
+    },
+    {
+      "slug": "infrared",
+      "name": "Infrared",
+      "family": "Stock",
+      "mode": "image",
+      "desc": "Aerochrome. Foliage goes coral pink, skies go black.",
+      "template": "{prompt}, Kodak Aerochrome infrared film, foliage rendered coral pink and magenta, near-black sky, surreal false colour, high contrast",
+      "previewSeed": 550,
+      "previewPrompt": "a road cutting through dense forest"
+    },
+    {
+      "slug": "table-top",
+      "name": "Table Top",
+      "family": "Light",
+      "mode": "image",
+      "desc": "Overhead flatlay, soft box, everything squared to the grid.",
+      "template": "{prompt}, overhead flat-lay composition, soft diffused box light, objects arranged on a precise grid, muted paper background, editorial still life",
+      "previewSeed": 12,
+      "previewPrompt": "the contents of a field photographer's bag"
+    },
+    {
+      "slug": "crowd-single",
+      "name": "One In The Crowd",
+      "family": "Camera",
+      "mode": "motion",
+      "desc": "The world blurs past at 1/8s while the subject stays razor sharp.",
+      "template": "{prompt}, subject perfectly sharp while the entire crowd around them is a long-exposure blur, 1/8 second shutter, busy transit hall, cool ambient light",
+      "move": "push",
+      "previewSeed": 3030,
+      "previewPrompt": "a man standing still in a rush-hour station concourse"
+    },
+    {
+      "slug": "sunfade",
+      "name": "Sun Fade",
+      "family": "Stock",
+      "mode": "image",
+      "desc": "Expired stock, lifted blacks, a magenta shift in the shadows.",
+      "template": "{prompt}, expired 35mm film stock, heavily lifted milky blacks, magenta colour shift in shadows, light leak across one edge, nostalgic and washed out",
+      "previewSeed": 1994,
+      "previewPrompt": "kids on bikes on a suburban street in late afternoon"
+    }
+  ],
+  "plans": [
+    {
+      "id": "darkroom-free",
+      "name": "Contact",
+      "credits": 40,
+      "price": 0,
+      "tagline": "Enough to find out whether you like it.",
+      "perks": [
+        "40 credits, refreshed monthly",
+        "Every image model",
+        "Full preset library",
+        "Your work stays private by default"
+      ]
+    },
+    {
+      "id": "darkroom-studio",
+      "name": "Studio",
+      "credits": 1200,
+      "price": 42,
+      "tagline": "For people shipping work every week.",
+      "perks": [
+        "1,200 credits a month",
+        "Motion models unlocked",
+        "Six jobs in parallel",
+        "4K downloads, no watermark",
+        "Credits roll over for 60 days"
+      ],
+      "featured": true
+    },
+    {
+      "id": "darkroom-plate",
+      "name": "Plate",
+      "credits": 3600,
+      "price": 96,
+      "tagline": "Volume, and the lowest price per credit we do.",
+      "perks": [
+        "3,600 credits a month",
+        "Everything in Studio",
+        "Priority queue",
+        "Unlimited parallel jobs",
+        "Commercial licence, written down"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+-- Prompt search. Trigram beats a leading-wildcard LIKE and needs no tsvector
+-- column, because prompts are short, multilingual and not prose.
+--
+-- NOTE: plain CREATE INDEX is correct here, the table is empty at this point.
+-- Against a live table this must be CREATE INDEX CONCURRENTLY in a migration
+-- of its own, since Prisma wraps each migration in a transaction and
+-- CONCURRENTLY cannot run inside one.
+--
+-- A composite (userId, prompt) GIN would need btree_gin for a uuid operator
+-- class. Not worth it: library search is already scoped to one user by the
+-- (userId, createdAt, id) btree, and one user holds hundreds of assets, not
+-- millions. Postgres BitmapAnds the two.
+CREATE INDEX "assets_prompt_trgm_idx" ON "assets" USING gin ("prompt" gin_trgm_ops);

@@ -1,0 +1,352 @@
+// Darkroom — source of truth for the database schema.
+// See architecture.md §5. Constraints Prisma cannot express (CHECK, partial
+// indexes, pg_trgm) live in migrations/0002_constraints_and_indexes.
+
+generator client {
+  provider             = "prisma-client-py"
+  interface            = "asyncio"
+  recursive_type_depth = 5
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
+}
+
+// ── enums ───────────────────────────────────────────────────────────────
+
+enum Mode {
+  IMAGE
+  MOTION
+}
+
+enum Engine {
+  FLUX
+  TURBO
+  KONTEXT
+}
+
+enum PresetFamily {
+  CAMERA
+  LIGHT
+  STOCK
+  WORLD
+}
+
+enum Move {
+  PUSH
+  PULL
+  ORBIT
+  WHIP
+  CRANE
+  FLOAT
+  SHAKE
+  DOLLY
+}
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  PARTIAL
+  FAILED
+  CANCELLED
+}
+
+enum AssetStatus {
+  PENDING
+  RUNNING
+  READY
+  FAILED
+}
+
+enum LedgerReason {
+  SIGNUP_GRANT
+  PLAN_GRANT
+  MONTHLY_REFRESH
+  JOB_DEBIT
+  JOB_REFUND
+  ADMIN_ADJUSTMENT
+}
+
+// ── identity ────────────────────────────────────────────────────────────
+
+model User {
+  id          String  @id @default(uuid()) @db.Uuid
+  isAnonymous Boolean @default(true)
+  handle      String? @db.VarChar(32)
+  handleLower String? @unique @db.VarChar(32)
+  email       String? @unique @db.VarChar(320)
+
+  emailVerifiedAt DateTime?
+
+  // Materialised balance, and a denormalisation of the ledger. Default 0, not
+  // the signup grant: credits may only ever arrive through a LedgerEntry, so
+  // `credits == SUM(ledger.delta)` is structurally true rather than true by
+  // convention. A default of 40 meant any row created directly was born in
+  // drift -- which the reconciliation job duly reported.
+  // CHECK (credits >= 0) in migration 0002 makes overspend a database error.
+  credits        Int       @default(0)
+  planId         String    @db.VarChar(64)
+  creditsResetAt DateTime?
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  lastSeenAt DateTime  @default(now())
+  deletedAt  DateTime?
+
+  plan     Plan          @relation(fields: [planId], references: [id])
+  assets   Asset[]
+  jobs     Job[]
+  ledger   LedgerEntry[]
+  likes    Like[]
+  sessions Session[]
+
+  @@index([planId])
+  @@index([createdAt(sort: Desc)])
+  @@index([lastSeenAt])
+  @@map("users")
+}
+
+model Session {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String    @unique @db.Char(64)
+  familyId  String    @db.Uuid
+  userAgent String?   @db.VarChar(400)
+  ipHash    String?   @db.Char(64)
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  revokedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+// ── catalog ─────────────────────────────────────────────────────────────
+
+model Plan {
+  id                String   @id @db.VarChar(64)
+  name              String   @db.VarChar(64)
+  tagline           String   @db.VarChar(200)
+  priceCents        Int
+  monthlyCredits    Int
+  maxBatch          Int      @default(4)
+  maxConcurrentJobs Int      @default(1)
+  generatePerMinute Int      @default(6)
+  motionEnabled     Boolean  @default(false)
+  perks             String[]
+  featured          Boolean  @default(false)
+  sortOrder         Int      @default(0)
+  active            Boolean  @default(true)
+
+  users User[]
+
+  @@map("plans")
+}
+
+model GenerationModel {
+  id         String  @id @db.VarChar(64)
+  name       String  @db.VarChar(64)
+  vendor     String  @db.VarChar(64)
+  mode       Mode
+  engine     Engine
+  creditCost Int
+  maxBatch   Int     @default(4)
+  blurb      String  @db.VarChar(300)
+  badge      String? @db.VarChar(16)
+  sortOrder  Int     @default(0)
+  active     Boolean @default(true)
+
+  assets Asset[]
+  jobs   Job[]
+
+  @@index([mode, active, sortOrder])
+  @@map("generation_models")
+}
+
+model Preset {
+  slug          String       @id @db.VarChar(64)
+  name          String       @db.VarChar(64)
+  family        PresetFamily
+  mode          Mode
+  description   String       @db.VarChar(400)
+  // Must contain the literal {prompt}; CHECK in migration 0002.
+  template      String       @db.VarChar(2000)
+  move          Move?
+  previewPrompt String       @db.VarChar(400)
+  previewSeed   Int
+  sortOrder     Int          @default(0)
+  active        Boolean      @default(true)
+
+  assets Asset[]
+  jobs   Job[]
+
+  @@index([family, mode, active])
+  @@map("presets")
+}
+
+model Ratio {
+  id        String  @id @db.VarChar(16)
+  label     String  @db.VarChar(16)
+  width     Int
+  height    Int
+  note      String  @db.VarChar(64)
+  sortOrder Int     @default(0)
+  active    Boolean @default(true)
+
+  assets Asset[]
+  jobs   Job[]
+
+  @@map("ratios")
+}
+
+// ── work ────────────────────────────────────────────────────────────────
+
+model Job {
+  id             String    @id @default(uuid()) @db.Uuid
+  userId         String    @db.Uuid
+  idempotencyKey String    @db.VarChar(128)
+  requestHash    String    @db.Char(64)
+  status         JobStatus @default(QUEUED)
+  mode           Mode
+
+  prompt         String  @db.VarChar(2000)
+  composedPrompt String  @db.VarChar(6000)
+  modelId        String  @db.VarChar(64)
+  presetSlug     String? @db.VarChar(64)
+  ratioId        String  @db.VarChar(16)
+  batch          Int
+  seed           Int?
+  move           Move?
+
+  creditsDebited  Int
+  creditsRefunded Int @default(0)
+
+  attempts   Int       @default(0)
+  error      String?   @db.VarChar(500)
+  queuedAt   DateTime  @default(now())
+  startedAt  DateTime?
+  finishedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  model   GenerationModel @relation(fields: [modelId], references: [id])
+  preset  Preset?         @relation(fields: [presetSlug], references: [slug])
+  ratio   Ratio           @relation(fields: [ratioId], references: [id])
+  outputs Asset[]
+  ledger  LedgerEntry[]
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, createdAt(sort: Desc), id])
+  @@index([status, queuedAt])
+  @@map("jobs")
+}
+
+model Asset {
+  id     String  @id @default(uuid()) @db.Uuid
+  userId String  @db.Uuid
+  jobId  String? @db.Uuid
+
+  mode   Mode
+  status AssetStatus @default(PENDING)
+
+  prompt         String  @db.VarChar(2000)
+  composedPrompt String  @db.VarChar(6000)
+  modelId        String  @db.VarChar(64)
+  presetSlug     String? @db.VarChar(64)
+  ratioId        String  @db.VarChar(16)
+  seed           Int
+  move           Move?
+  width          Int
+  height         Int
+  creditCost     Int
+  authorHandle   String  @db.VarChar(32)
+
+  storageKey  String? @db.VarChar(400)
+  contentHash String? @db.Char(64)
+  bytes       Int?
+
+  published   Boolean   @default(false)
+  publishedAt DateTime?
+  likeCount   Int       @default(0)
+  seeded      Boolean   @default(false)
+
+  error     String?   @db.VarChar(500)
+  version   Int       @default(1)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  user   User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job    Job?            @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  model  GenerationModel @relation(fields: [modelId], references: [id])
+  preset Preset?         @relation(fields: [presetSlug], references: [slug])
+  ratio  Ratio           @relation(fields: [ratioId], references: [id])
+  likes  Like[]
+
+  @@index([userId, createdAt(sort: Desc), id])
+  @@index([published, publishedAt(sort: Desc), id(sort: Desc)])
+  @@index([jobId])
+  @@index([contentHash])
+  @@index([presetSlug, publishedAt(sort: Desc)])
+  @@map("assets")
+}
+
+model Like {
+  userId    String   @db.Uuid
+  assetId   String   @db.Uuid
+  createdAt DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@id([userId, assetId])
+  @@index([assetId])
+  @@map("likes")
+}
+
+// ── money ───────────────────────────────────────────────────────────────
+
+model LedgerEntry {
+  id     BigInt  @id @default(autoincrement())
+  userId String  @db.Uuid
+  jobId  String? @db.Uuid
+
+  reason       LedgerReason
+  delta        Int
+  balanceAfter Int
+  note         String?      @db.VarChar(200)
+  createdAt    DateTime     @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job  Job? @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  // One DEBIT and one REFUND per job, ever. NULLs are distinct in Postgres,
+  // so grants and refreshes are unaffected.
+  @@unique([jobId, reason])
+  @@index([userId, createdAt(sort: Desc), id])
+  @@map("ledger_entries")
+}
+
+// ── ops ─────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id        BigInt   @id @default(autoincrement())
+  userId    String?  @db.Uuid
+  action    String   @db.VarChar(64)
+  subject   String?  @db.VarChar(128)
+  metadata  Json?
+  ipHash    String?  @db.Char(64)
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([action, createdAt(sort: Desc)])
+  @@map("audit_logs")
+}
