@@ -1,0 +1,29 @@
+# Local development dependencies. Version-pinned so CI and a new contributor
+# get the same database. See architecture.md §19.
+services:
+  postgres:
+    image: postgres:16.4-alpine
+    environment:
+      POSTGRES_USER: darkroom
+      POSTGRES_PASSWORD: darkroom
+      POSTGRES_DB: darkroom
+    ports: ["5432:5432"]
+    volumes: ["darkroom-pg:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U darkroom -d darkroom"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "no", "--save", ""]
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  darkroom-pg:

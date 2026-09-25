@@ -7,14 +7,27 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "bake:wall": "node tools/bake-wall.mjs"
+    "bake:wall": "node tools/bake-wall.mjs",
+    "api": "cd api && .venv/bin/python -m uvicorn app.main:app --reload --port 8000",
+    "worker": "cd api && .venv/bin/python -m app.workers.tasks",
+    "db:migrate": "api/.venv/bin/python -m prisma migrate dev --schema prisma/schema.prisma",
+    "db:migrate:deploy": "api/.venv/bin/python -m prisma migrate deploy --schema prisma/schema.prisma",
+    "db:generate": "api/.venv/bin/python -m prisma generate --schema prisma/schema.prisma",
+    "db:seed": "api/.venv/bin/python prisma/seed/seed.py",
+    "db:reset": "api/.venv/bin/python -m prisma migrate reset --force --schema prisma/schema.prisma",
+    "db:studio": "api/.venv/bin/python -m prisma studio --schema prisma/schema.prisma",
+    "catalog:extract": "node tools/extract-catalog.mjs",
+    "check": "make check",
+    "e2e": "node tools/e2e-browser.mjs",
+    "e2e:headed": "HEADED=1 node tools/e2e-browser.mjs"
   },
   "dependencies": {
     "@fontsource/instrument-serif": "^5.3.0",
     "geist": "^1.7.2",
     "next": "16.3.5",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "yup": "^1.7.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

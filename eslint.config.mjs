@@ -12,6 +12,11 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Python side: the venv vendors JS assets (coverage, import-linter) that
+    // are not ours to lint.
+    "api/.venv/**",
+    "api/.storage/**",
+    ".storage/**",
   ]),
 ]);
 
