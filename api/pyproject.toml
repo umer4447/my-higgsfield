@@ -1,0 +1,100 @@
+[project]
+name = "darkroom-api"
+version = "1.0.0"
+description = "Darkroom backend — FastAPI, Postgres, Prisma"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.32",
+  "prisma==0.15.0",
+  "pydantic>=2.9",
+  "pydantic-settings>=2.6",
+  "redis>=5.2",
+  "arq>=0.26",
+  "httpx>=0.28",
+  "pyjwt>=2.10",
+  "orjson>=3.10",
+  "structlog>=24.4",
+  "python-multipart>=0.0.20",
+]
+
+[project.optional-dependencies]
+s3 = ["boto3>=1.35"]
+dev = [
+  "pytest>=8.3",
+  "pytest-asyncio>=0.24",
+  "pytest-cov>=6.0",
+  "ruff>=0.8",
+  "mypy>=1.13",
+  "import-linter>=2.1",
+  "schemathesis>=3.38",
+  "anyio>=4.7",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+extend-exclude = ["app/prisma_client", ".venv"]
+
+[tool.ruff.lint]
+select = [
+  "E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "ARG", "PTH", "RUF",
+  "S",      # bandit: hardcoded secrets, weak hashes, SQL building
+  "ASYNC",  # blocking calls inside async def
+]
+ignore = [
+  "S101",   # assert — used deliberately in tests and invariant checks
+  "B008",   # FastAPI Depends() in defaults is the documented idiom
+  "A003",   # `id` as a model field name is correct here
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S105", "S106", "ARG001", "ARG002"]
+# N818 wants every exception to end in "Error". These are named for the HTTP
+# problem they map to (NotFound, Conflict, RateLimited), which is what makes
+# the handler in main.py readable. The suffix would add noise, not clarity.
+"app/core/errors.py" = ["N818"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+disallow_untyped_defs = true
+warn_unreachable = true
+plugins = ["pydantic.mypy"]
+exclude = ["^\\.venv/", "^tests/"]
+
+[[tool.mypy.overrides]]
+# boto3 is an optional extra, so it is absent from a base install. The S3
+# backend is typed against it when installed; mypy must not fail without it.
+module = ["arq.*", "prisma.*", "boto3.*", "botocore.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+filterwarnings = ["error::DeprecationWarning"]
+
+[tool.importlinter]
+root_package = "app"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Layering: routers -> services -> repositories -> prisma"
+type = "layers"
+layers = ["app.routers", "app.services", "app.repositories"]
+
+[[tool.importlinter.contracts]]
+name = "Routers may not touch the database directly"
+type = "forbidden"
+source_modules = ["app.routers"]
+forbidden_modules = ["prisma"]
+# Indirect is the whole point: routers -> services -> repositories -> prisma.
+# What is banned is a router importing prisma itself.
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Services stay HTTP-free"
+type = "forbidden"
+source_modules = ["app.services"]
+forbidden_modules = ["fastapi"]
+allow_indirect_imports = true
